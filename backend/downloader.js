@@ -31,6 +31,20 @@ const findYtDlpBinary = () => {
     path.join("C:", "Python311", "Scripts"),
     path.join("C:", "Python310", "Scripts"),
   ]
+
+  // Dynamically add subdirectories of Programs\Python (e.g. Python311\Scripts)
+  try {
+    const pythonRoot = path.join(process.env.LOCALAPPDATA || "", "Programs", "Python")
+    if (fsSync.existsSync(pythonRoot)) {
+      const dirs = fsSync.readdirSync(pythonRoot)
+      for (const d of dirs) {
+        pipDirs.push(path.join(pythonRoot, d, "Scripts"))
+      }
+    }
+  } catch (e) {
+    console.warn("[dl] Dynamic python Scripts search failed:", e.message)
+  }
+
   const all = [
     ...pipDirs.map(d => path.join(d, `yt-dlp${exe}`)),
     path.resolve("node_modules", "youtube-dl-exec", "bin", `yt-dlp${exe}`),
@@ -38,7 +52,11 @@ const findYtDlpBinary = () => {
     `yt-dlp${exe}`,
   ]
   for (const c of all) {
-    try { fsSync.accessSync(c, fsSync.constants.F_OK); console.log(`[dl] Binary: ${c}`); return c }
+    try {
+      fsSync.accessSync(c, fsSync.constants.F_OK)
+      console.log(`[dl] Binary: ${c}`)
+      return c
+    }
     catch {}
   }
   return `yt-dlp${exe}`
@@ -147,65 +165,60 @@ const downloadVideo = async (url, finalMp4Path, { onProgress } = {}) => {
       : []),
   ]
 
-  // ── STRATEGY ORDER — Strategy 3 (standard web) is FIRST ──────────────────
+  // ── STRATEGY ORDER — High quality (1080p/1440p/4K+) standard web is FIRST ──────────
   const strategies = [
-    // STRATEGY 1 (was #3): Standard web — most reliable, no special client needed
+    // STRATEGY 1: Standard web — highest quality (4K, 1440p, 1080p) MP4+M4A
     {
-      label: "1080p standard web",
+      label: "highest quality standard web (mp4)",
       args: [
         ...base,
-        "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         safeUrl,
       ],
     },
-    // STRATEGY 2: Standard web — wide format selector
+    // STRATEGY 2: Standard web — wide format selector (highest quality)
     {
-      label: "1080p standard web (wide)",
+      label: "highest quality standard web (wide)",
       args: [
         ...base,
-        "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "-f", "bestvideo+bestaudio/best",
         safeUrl,
       ],
     },
-    // STRATEGY 3 (was #1): web_creator — good for some videos
+    // STRATEGY 3: web_creator — highest quality MP4+M4A
     {
-      label: "1080p web_creator",
-      args: [
-        ...base,
-        "--extractor-args", "youtube:player_client=web_creator",
-        "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 4 (was #2): web_creator wide
-    {
-      label: "1080p web_creator (wide)",
+      label: "highest quality web_creator (mp4)",
       args: [
         ...base,
         "--extractor-args", "youtube:player_client=web_creator",
-        "-f", "bestvideo[height<=1080]+bestaudio/best",
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         safeUrl,
       ],
     },
-    // STRATEGY 5 (was #4): ios + missing_pot
+    // STRATEGY 4: web_creator wide (highest quality)
     {
-      label: "1080p ios+missing_pot",
+      label: "highest quality web_creator (wide)",
+      args: [
+        ...base,
+        "--extractor-args", "youtube:player_client=web_creator",
+        "-f", "bestvideo+bestaudio/best",
+        safeUrl,
+      ],
+    },
+    // STRATEGY 5: ios + missing_pot (highest quality)
+    {
+      label: "highest quality ios+missing_pot",
       args: [
         ...base,
         "--extractor-args", "youtube:player_client=ios,formats=missing_pot",
-        "-f", "bestvideo[height<=1080]+bestaudio/best",
+        "-f", "bestvideo+bestaudio/best",
         safeUrl,
       ],
     },
-    // STRATEGY 6: 720p fallback
+    // STRATEGY 6: Fallback - any best available format
     {
-      label: "720p",
-      args: [...base, "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best", safeUrl],
-    },
-    // STRATEGY 7: Last resort — any best format
-    {
-      label: "best available",
-      args: [...base, "-f", "b", safeUrl],
+      label: "best available fallback",
+      args: [...base, "-f", "best", safeUrl],
     },
   ]
 
@@ -244,4 +257,4 @@ const downloadVideo = async (url, finalMp4Path, { onProgress } = {}) => {
   throw new Error("All download strategies failed. Update yt-dlp: pip install -U yt-dlp")
 }
 
-module.exports = { downloadVideo }
+module.exports = { downloadVideo, findYtDlpBinary }

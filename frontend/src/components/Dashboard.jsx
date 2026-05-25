@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import axios from "axios"
 import { io } from "socket.io-client"
+import gsap from "gsap"
+import { useGSAP } from "@gsap/react"
 import {
   Download, Scissors, Zap, Clock, TrendingUp,
   Copy, Check, Sparkles, Captions,
@@ -8,9 +10,10 @@ import {
   Film, Star, Flame, Plus,
   Play, Pause, Volume2, VolumeX,
   SkipBack, SkipForward, Type, Palette,
-  LogOut, RefreshCw, History, X,
+  LogOut, RefreshCw, History, X, Maximize,
 } from "lucide-react"
 import ExtendCutModal from "./ExtendCutModal"
+import Navbar from "./Navbar"
 
 const API_BASE = "http://localhost:5000/api"
 const API_ROOT = "http://localhost:5000"
@@ -40,25 +43,26 @@ const isYT = (u) =>
   /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/.test(u)
 
 const scoreMeta = (n) => {
-  if (n >= 90) return { color: "#f43f5e", label: "Viral", glow: "rgba(244,63,94,0.4)" }
-  if (n >= 75) return { color: "#f97316", label: "Hot", glow: "rgba(249,115,22,0.4)" }
-  return { color: "#06b6d4", label: "Good", glow: "rgba(6,182,212,0.4)" }
+  if (n >= 90) return { color: "#306D29", label: "Viral", glow: "rgba(48,109,41,0.2)" }
+  if (n >= 75) return { color: "#8fa85c", label: "Hot", glow: "rgba(143,168,92,0.2)" }
+  return { color: "#bfa26f", label: "Good", glow: "rgba(191,162,111,0.2)" }
 }
+
 
 // ── Caption Style Presets ──────────────────────────────────────────────────────
 export const CAPTION_STYLES = {
   classic: {
     id: "classic", name: "Classic", preview: "Hello World",
     font: "Arial Black", fontSize: 82, primaryColor: "#FFFFFF",
-    highlightColor: "#FFFF00", outlineColor: "#000000",
+    highlightColor: "#8b5cf6", outlineColor: "#000000",
     position: "bottom", animation: "word", bold: true,
     bgBox: false, bgColor: "rgba(0,0,0,0.5)",
-    description: "Clean white text, yellow highlight",
+    description: "Clean white text, purple highlight",
   },
   neon: {
     id: "neon", name: "Neon", preview: "Hello World",
     font: "Impact", fontSize: 90, primaryColor: "#FFFFFF",
-    highlightColor: "#FF0080", outlineColor: "#000000",
+    highlightColor: "#ec4899", outlineColor: "#000000",
     position: "bottom", animation: "word", bold: true,
     bgBox: false, bgColor: "transparent",
     description: "Bold Impact with neon pink highlight",
@@ -66,7 +70,7 @@ export const CAPTION_STYLES = {
   tiktok: {
     id: "tiktok", name: "TikTok", preview: "Hello World",
     font: "Montserrat", fontSize: 78, primaryColor: "#FFFFFF",
-    highlightColor: "#FE2C55", outlineColor: "#000000",
+    highlightColor: "#ec4899", outlineColor: "#000000",
     position: "center", animation: "word", bold: true,
     bgBox: true, bgColor: "rgba(0,0,0,0.75)",
     description: "TikTok-style centered captions",
@@ -82,18 +86,50 @@ export const CAPTION_STYLES = {
   fire: {
     id: "fire", name: "🔥 Fire", preview: "Hello World",
     font: "Arial Black", fontSize: 88, primaryColor: "#FFF176",
-    highlightColor: "#FF3D00", outlineColor: "#000000",
+    highlightColor: "#ec4899", outlineColor: "#000000",
     position: "bottom", animation: "word", bold: true,
     bgBox: false, bgColor: "transparent",
-    description: "Fiery yellow-orange palette",
+    description: "Fiery pink-orange palette",
   },
   hindi: {
     id: "hindi", name: "Hindi", preview: "नमस्ते",
     font: "Noto Sans", fontSize: 82, primaryColor: "#FFFFFF",
-    highlightColor: "#00FFEA", outlineColor: "#000000",
+    highlightColor: "#8b5cf6", outlineColor: "#000000",
     position: "bottom", animation: "word", bold: true,
     bgBox: false, bgColor: "transparent",
     description: "Noto Sans for Devanagari script",
+  },
+  hormozi: {
+    id: "hormozi", name: "Hormozi", preview: "VIRAL SHORTS",
+    font: "Impact", fontSize: 92, primaryColor: "#FFFF00",
+    highlightColor: "#00FF00", outlineColor: "#000000",
+    position: "center", animation: "word", bold: true,
+    bgBox: false, bgColor: "transparent",
+    description: "Alex Hormozi viral yellow/green style",
+  },
+  aesthetic: {
+    id: "aesthetic", name: "Aesthetic", preview: "Pure Vibes",
+    font: "Montserrat", fontSize: 78, primaryColor: "#FFFFFF",
+    highlightColor: "#D8B4FE", outlineColor: "#000000",
+    position: "bottom", animation: "word", bold: true,
+    bgBox: true, bgColor: "rgba(0,0,0,0.7)",
+    description: "Montserrat with violet glass box",
+  },
+  cyberpunk: {
+    id: "cyberpunk", name: "Cyberpunk", preview: "CYBER PUNK",
+    font: "Arial Black", fontSize: 88, primaryColor: "#00FFFF",
+    highlightColor: "#FF00FF", outlineColor: "#000000",
+    position: "bottom", animation: "word", bold: true,
+    bgBox: false, bgColor: "transparent",
+    description: "Cyan & electric hot pink style",
+  },
+  drktalks: {
+    id: "drktalks", name: "DRK Talks", preview: "Paise Nahi Lagte",
+    font: "Poppins", fontSize: 90, primaryColor: "#FFFFFF",
+    highlightColor: "#00D2FF", outlineColor: "#000000",
+    position: "bottom", animation: "word", bold: true,
+    bgBox: false, bgColor: "transparent",
+    description: "Vibrant cyan active word with white text",
   },
 }
 
@@ -122,53 +158,201 @@ if (typeof document !== "undefined" && !document.getElementById("shortai-global"
   const s = document.createElement("style")
   s.id = "shortai-global"
   s.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@300;400;500;600;700;800&display=swap');
     @keyframes spin    { to { transform: rotate(360deg); } }
     @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
-    @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes slideDown { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes slideLeft { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+    @keyframes slideRight { from{opacity:0;transform:translateX(-20px)} to{opacity:1;transform:translateX(0)} }
     @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
     @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-    @keyframes glow    { 0%,100%{box-shadow:0 0 20px rgba(244,63,94,0.3)} 50%{box-shadow:0 0 40px rgba(244,63,94,0.6)} }
+    @keyframes glow    { 0%,100%{box-shadow:0 0 20px rgba(139,92,246,0.3)} 50%{box-shadow:0 0 40px rgba(139,92,246,0.6)} }
+    @keyframes float { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-10px)} }
+    @keyframes floatRotate { 0%,100%{transform:translateY(0px) rotate(0deg)} 50%{transform:translateY(-15px) rotate(2deg)} }
+    @keyframes gradientShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+    @keyframes borderGlow { 0%,100%{border-color:rgba(139,92,246,0.3)} 50%{border-color:rgba(236,72,153,0.6)} }
+    @keyframes particle { 0%{transform:scale(0);opacity:0} 50%{transform:scale(1);opacity:0.5} 100%{transform:scale(0);opacity:0} }
+    @keyframes ringPulse { 0%{transform:scale(0.8);opacity:0.5} 100%{transform:scale(1.5);opacity:0} }
+    @keyframes wave { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { background: #030305 !important; }
+    body { 
+      background: #050508 !important; 
+      font-family: 'Outfit', sans-serif;
+    }
     input:focus { outline: none !important; }
-    button { transition: all 0.15s ease !important; }
-    button:active { transform: scale(0.96) !important; }
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
+    button { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+    button:active { transform: scale(0.97) !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #8b5cf6, #ec4899); border-radius: 99px; }
     .video-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; outline: none; }
-    .video-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #f43f5e; cursor: pointer; box-shadow: 0 0 8px rgba(244,63,94,0.8); }
-    .card-enter { animation: slideUp 0.4s ease forwards; }
+    .video-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, #8b5cf6, #ec4899); cursor: pointer; box-shadow: 0 0 12px rgba(139,92,246,0.6); }
+    .card-enter { animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
     .shimmer-bg { background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 100%); background-size: 200% 100%; animation: shimmer 2s infinite; }
     .glow-border { animation: glow 2s ease-in-out infinite; }
+    .gradient-text {
+      background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f472b6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-size: 200% 200%;
+      animation: gradientShift 3s ease infinite;
+    }
+    .gradient-border {
+      position: relative;
+      background: linear-gradient(#0a0a12, #0a0a12) padding-box,
+                  linear-gradient(135deg, #8b5cf6, #ec4899, #f472b6) border-box;
+      border: 2px solid transparent;
+    }
+    .glass {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .btn-gradient {
+      background: linear-gradient(135deg, #8b5cf6, #ec4899);
+      border: none;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-gradient::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+      transition: left 0.5s;
+    }
+    .btn-gradient:hover::before {
+      left: 100%;
+    }
+    .animate-float { animation: float 4s ease-in-out infinite; }
+    .animate-float-rotate { animation: floatRotate 5s ease-in-out infinite; }
   `
   document.head.appendChild(s)
 }
+
+// ── Demo Data for Empty State Redesign mockup ─────────────────────────────────
+const DEMO_VIDEO_INFO = {
+  title: "The Future of Organic Farming & Artificial Intelligence (Joe Rogan Experience)",
+  videoType: "Podcast",
+  language: "english",
+  duration: 5760,
+  quality: "1080p",
+  fileSize: "412",
+  hasRealCaptions: true
+}
+
+const DEMO_CLIPS = [
+  {
+    id: "demo-clip-1",
+    title: "Why soil biology is the ultimate AI model",
+    startTime: 120,
+    endTime: 150,
+    duration: 30,
+    viralScore: 94,
+    isAiHook: true,
+    explanation: "Highly engaging hook about natural farming, using AI as a metaphor. Connects tech-enthusiasts with wellness creators.",
+    language: "english",
+    thumbnail: "https://images.unsplash.com/photo-1592417817098-8f3d6eb19675?w=600&auto=format&fit=crop",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-vegetables-in-a-market-basket-40344-large.mp4",
+    viralTitles: [
+      "AI is hidden inside your soil 🤯",
+      "Why soil biology is the ultimate AI model",
+      "The tech sector is learning from organic farmers!"
+    ],
+    captionSegments: [
+      { start: 120, end: 123, text: "So if you look at soil biology," },
+      { start: 123, end: 127, text: "it's actually the ultimate artificial intelligence model" },
+      { start: 127, end: 130, text: "that has evolved over millions of years." }
+    ]
+  },
+  {
+    id: "demo-clip-2",
+    title: "How corporate agriculture ruined the gut microbiome",
+    startTime: 650,
+    endTime: 710,
+    duration: 60,
+    viralScore: 88,
+    isAiHook: false,
+    explanation: "Strong emotional hook about wellness and microbiome health, structured for high retention.",
+    language: "english",
+    thumbnail: "https://images.unsplash.com/photo-1506084868230-bb9d95c24759?w=600&auto=format&fit=crop",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-fresh-salad-ingredients-being-washed-40294-large.mp4",
+    viralTitles: [
+      "The silent killer in your groceries 🤢",
+      "Corporate agriculture vs. your gut health",
+      "How we lost 50% of our gut microbiome diversity"
+    ],
+    captionSegments: [
+      { start: 650, end: 653, text: "Modern chemical farming has systematically" },
+      { start: 653, end: 656, text: "depleted the trace minerals in our food," },
+      { start: 656, end: 660, text: "destroying our essential gut microbiome." }
+    ]
+  },
+  {
+    id: "demo-clip-3",
+    title: "The Indian farming technique saving water",
+    startTime: 1820,
+    endTime: 1865,
+    duration: 45,
+    viralScore: 91,
+    isAiHook: false,
+    explanation: "Fascinating case study of water conservation in organic farming, driving high shareability.",
+    language: "hindi",
+    thumbnail: "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600&auto=format&fit=crop",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-small-stream-flowing-through-rocks-42825-large.mp4",
+    viralTitles: [
+      "यह तकनीक लाखों गैलन पानी बचा रही है! 🇮🇳",
+      "The ancient water hack saving modern farms",
+      "Traditional Indian organic farming goes viral"
+    ],
+    captionSegments: [
+      { start: 1820, end: 1823, text: "यह पारंपरिक भारतीय जैविक कृषि पद्धति" },
+      { start: 1823, end: 1827, text: "लाखों गैलन पानी बचाने में सक्षम है।" }
+    ]
+  }
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Dashboard({ user, onLogout }) {
   const [url, setUrl]                   = useState("")
   const [processing, setProcessing]     = useState(false)
-  const [clips, setClips]               = useState([])
+  const [clips, setClips]               = useState(DEMO_CLIPS)
   const [customClips, setCustomClips]   = useState([])
   const [error, setError]               = useState("")
   const [progressMsg, setProgressMsg]   = useState("")
   const [progressPct, setProgressPct]   = useState(0)
-  const [videoInfo, setVideoInfo]       = useState(null)
+  const [videoInfo, setVideoInfo]       = useState(DEMO_VIDEO_INFO)
   const [elapsed, setElapsed]           = useState(0)
-  const [sessionId, setSessionId]       = useState(null)
+  const [sessionId, setSessionId]       = useState("demo-session")
   const [editingClip, setEditingClip]   = useState(null)
   const [copiedId, setCopiedId]         = useState(null)
-  const [captionState, setCaptionState] = useState({})
-  const [captionUrl, setCaptionUrl]     = useState({})
+  const [captionState, setCaptionState] = useState({
+    "demo-clip-1": "ready",
+    "demo-clip-2": "ready",
+    "demo-clip-3": "ready"
+  })
+  const [captionUrl, setCaptionUrl]     = useState({
+    "demo-clip-1": "demo-clip-1",
+    "demo-clip-2": "demo-clip-2",
+    "demo-clip-3": "demo-clip-3"
+  })
   const [dlLoading, setDlLoading]       = useState({})
   const [expanded, setExpanded]         = useState({})
   const [activeFilter, setActiveFilter] = useState("all")
   const [savedSessions, setSavedSessions] = useState([])
   const [showHistory, setShowHistory]   = useState(false)
   const [captionStyles, setCaptionStyles] = useState({}) // per clip style
+  const [selectedFonts, setSelectedFonts] = useState({}) // per clip font
   const [showStylePicker, setShowStylePicker] = useState(null) // clipId
   const [globalCaptionStyle, setGlobalCaptionStyle] = useState("classic")
   const [pastClips, setPastClips]       = useState([]) // past generated clips history
@@ -216,7 +400,7 @@ export default function Dashboard({ user, onLogout }) {
 
   // ── Persist session to localStorage whenever a session starts ─────────────
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || sessionId === "demo-session") return
     const sessions = loadSavedSessions()
     const exists = sessions.find(s => s.sessionId === sessionId)
     if (!exists) {
@@ -331,6 +515,13 @@ export default function Dashboard({ user, onLogout }) {
     if (!inProgress) return
     const ageMin = (Date.now() - inProgress.startedAt) / 60000
     if (ageMin > 60) return // ignore old sessions
+    
+    // Clear demo data
+    setClips([])
+    setVideoInfo(null)
+    setCaptionState({})
+    setCaptionUrl({})
+    
     // Rejoin the session
     setSessionId(inProgress.sessionId)
     setUrl(inProgress.url || "")
@@ -405,7 +596,19 @@ export default function Dashboard({ user, onLogout }) {
     const key = `${clipId}-${captioned ? "cap" : "clean"}`
     setDlLoading((p) => ({ ...p, [key]: true }))
     try {
-      const id = captioned ? `${clipId}_captioned` : clipId
+      if (clipId.startsWith("demo-")) {
+        const demoClip = DEMO_CLIPS.find(c => c.id === clipId) || customClips.find(c => c.id === clipId)
+        if (demoClip) {
+          const a = document.createElement("a")
+          a.href = demoClip.videoUrl
+          a.target = "_blank"
+          a.download = filename
+          document.body.appendChild(a); a.click(); a.remove()
+        }
+        return
+      }
+      const style = captionStyles[clipId] || globalCaptionStyle
+      const id = captioned ? `${clipId}_captioned?style=${style}` : clipId
       const r = await axios.get(`${API_BASE}/download/${id}`, { responseType: "blob" })
       const blobUrl = window.URL.createObjectURL(new Blob([r.data]))
       const a = document.createElement("a")
@@ -420,16 +623,60 @@ export default function Dashboard({ user, onLogout }) {
     if (captionState[clipId] === "loading") return
     setCaptionState((p) => ({ ...p, [clipId]: "loading" }))
     const style = captionStyles[clipId] || globalCaptionStyle
+    if (clipId.startsWith("demo-")) {
+      setTimeout(() => {
+        const demoClip = DEMO_CLIPS.find(c => c.id === clipId) || customClips.find(c => c.id === clipId)
+        setCaptionUrl((p) => ({ ...p, [clipId]: demoClip.videoUrl }))
+        setCaptionState((p) => ({ ...p, [clipId]: "ready" }))
+      }, 1000)
+      return
+    }
     try {
-      const r = await axios.post(`${API_BASE}/add-captions/${clipId}`, { sessionId, captionStyle: style })
+      const r = await axios.post(`${API_BASE}/add-captions/${clipId}`, { sessionId, captionStyle: style, selectedFont: selectedFonts[clipId] || "default" })
       if (r.data.success) {
         setCaptionUrl((p) => ({ ...p, [clipId]: r.data.videoUrl }))
         setCaptionState((p) => ({ ...p, [clipId]: "ready" }))
+        // Update clips arrays to store real caption metadata
+        const updateClipsList = (list) =>
+          list.map((c) =>
+            c.id === clipId
+              ? {
+                  ...c,
+                  hasRealCaptions: r.data.isReal,
+                  language: r.data.language,
+                  captionSegments: r.data.captionSegments || [],
+                  viralTitles: r.data.viralTitles && r.data.viralTitles.length > 0 ? r.data.viralTitles : c.viralTitles,
+                }
+              : c
+          )
+        setClips((prev) => updateClipsList(prev))
+        setCustomClips((prev) => updateClipsList(prev))
       } else { setCaptionState((p) => ({ ...p, [clipId]: "error" })) }
     } catch { setCaptionState((p) => ({ ...p, [clipId]: "error" })) }
   }
 
   const handleExtendCut = async (clip, newStart, newEnd) => {
+    if (clip.id.startsWith("demo-")) {
+      setProgressMsg("Creating custom clip…")
+      setTimeout(() => {
+        const newClip = {
+          ...clip,
+          id: `demo-custom-${Date.now()}`,
+          title: `${clip.title} (Custom Cut)`,
+          startTime: newStart,
+          endTime: newEnd,
+          duration: newEnd - newStart,
+          isCustom: true,
+          isAiHook: false,
+          viralScore: Math.round(clip.viralScore * 0.95),
+          captionSegments: (clip.captionSegments || []).filter(s => s.start >= newStart && s.end <= newEnd)
+        }
+        setCustomClips((p) => [...p, newClip])
+        setEditingClip(null)
+        setProgressMsg("")
+      }, 1000)
+      return
+    }
     try {
       setProgressMsg("Creating custom clip…")
       const r = await axios.post(`${API_BASE}/extend-cut-clip`, {
@@ -532,34 +779,14 @@ export default function Dashboard({ user, onLogout }) {
       <div style={S.grid} />
 
       {/* NAV */}
-      <nav style={S.nav}>
-        <div style={S.navInner}>
-          <div style={S.navBrand}>
-            <div style={S.logoMark}>
-              <Film size={16} color="#fff" strokeWidth={2.5} />
-            </div>
-            <span style={S.brandName}>Short<span style={S.brandAccent}>AI</span></span>
-            <span style={S.vTag}>v8</span>
-          </div>
-          <div style={S.navRight}>
-            {videoInfo && (
-              <div style={S.statusPill}>
-                <span style={S.statusDot} />
-                <span>{allClips.length} clips ready</span>
-              </div>
-            )}
-            <button style={S.navBtn} onClick={() => setShowHistory(!showHistory)} title="Session History">
-              <History size={16} />
-            </button>
-            {user && (
-              <button style={S.navBtn} onClick={onLogout} title="Sign out">
-                <LogOut size={16} />
-              </button>
-            )}
-            <div style={S.avatar}>{(user?.name || "U").charAt(0).toUpperCase()}</div>
-          </div>
-        </div>
-      </nav>
+      <Navbar 
+        user={user} 
+        onLogout={onLogout} 
+        showHistoryBtn={true} 
+        onToggleHistory={() => setShowHistory(!showHistory)} 
+        clipsCount={allClips.length} 
+        videoInfo={videoInfo} 
+      />
 
       {/* HISTORY PANEL */}
       {showHistory && (
@@ -749,7 +976,7 @@ export default function Dashboard({ user, onLogout }) {
         )}
 
         {/* CLIPS SECTION */}
-        {allClips.length > 0 && (
+        {allClips.length > 0 && !processing && (
           <section style={{ animation: "slideUp 0.5s ease" }}>
             <div style={S.sectionHeader}>
               <div>
@@ -821,6 +1048,8 @@ export default function Dashboard({ user, onLogout }) {
                     onDownloadCaptioned={() => download(clip.id, `${clip.id}_captioned.mp4`, true)}
                     onEdit={() => openEdit(clip)}
                     onCopyTitle={copyTitle}
+                    selectedFont={selectedFonts[clip.id] || "default"}
+                    onSetCaptionFont={(font) => setSelectedFonts(p => ({ ...p, [clip.id]: font }))}
                   />
                 </div>
               ))}
@@ -930,6 +1159,7 @@ export default function Dashboard({ user, onLogout }) {
           onClose={() => setEditingClip(null)}
           onSave={handleExtendCut}
           formatDuration={fmt}
+          videoUrl={API_ROOT + "/api/preview-original/" + sessionId}
         />
       )}
     </div>
@@ -966,7 +1196,7 @@ function CaptionStylePicker({ currentStyle, onSelect, onClose }) {
               </div>
               <div style={SP.label}>
                 <span style={{ fontWeight: 600, fontSize: 12 }}>{style.name}</span>
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>{style.description}</span>
+                <span style={{ fontSize: 10, color: "rgba(13, 83, 14, 0.55)", marginTop: 2 }}>{style.description}</span>
               </div>
               {currentStyle === style.id && (
                 <div style={SP.checkMark}><Check size={10} /></div>
@@ -980,16 +1210,16 @@ function CaptionStylePicker({ currentStyle, onSelect, onClose }) {
 }
 
 const SP = {
-  overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
-  panel: { background: "#0c0c18", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 20, padding: 24, width: "min(500px, 95vw)", maxHeight: "80vh", overflowY: "auto" },
+  overlay: { position: "fixed", inset: 0, background: "rgba(13, 83, 14, 0.18)", backdropFilter: "blur(8px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
+  panel: { background: "#FFFDF7", border: "1px solid rgba(48, 109, 41, 0.15)", borderRadius: 20, padding: 24, width: "min(500px, 95vw)", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 32px 80px rgba(48, 109, 41, 0.15)", color: "#0D530E" },
   head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  closeBtn: { background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 8, padding: "6px 8px", color: "rgba(255,255,255,0.6)", cursor: "pointer", display: "flex", alignItems: "center" },
+  closeBtn: { background: "rgba(48, 109, 41, 0.05)", border: "none", borderRadius: 8, padding: "6px 8px", color: "#0D530E", cursor: "pointer", display: "flex", alignItems: "center" },
   grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
-  card: { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 10, position: "relative", textAlign: "left", transition: "all 0.15s" },
-  cardActive: { background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.4)" },
-  preview: { background: "#111", borderRadius: 8, padding: "12px 8px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 44 },
+  card: { background: "rgba(48, 109, 41, 0.02)", border: "1px solid rgba(48, 109, 41, 0.12)", borderRadius: 12, padding: "14px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 10, position: "relative", textAlign: "left", transition: "all 0.15s", color: "#0D530E" },
+  cardActive: { background: "rgba(48, 109, 41, 0.08)", border: "1px solid rgba(48, 109, 41, 0.4)" },
+  preview: { background: "#1C2E1A", borderRadius: 8, padding: "12px 8px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 44 },
   label: { display: "flex", flexDirection: "column" },
-  checkMark: { position: "absolute", top: 8, right: 8, background: "#f43f5e", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" },
+  checkMark: { position: "absolute", top: 8, right: 8, background: "#306D29", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", color: "#FFFDF7" },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1001,6 +1231,7 @@ function ClipCard({
   onToggleStylePicker, onSetCaptionStyle,
   onExpand, onDownloadClean, onAddCaptions, onDownloadCaptioned,
   onEdit, onCopyTitle,
+  selectedFont, onSetCaptionFont,
 }) {
   const videoRef    = useRef(null)
   const [playing, setPlaying]           = useState(false)
@@ -1022,7 +1253,9 @@ function ClipCard({
 
   const baseVideoSrc =
     capReady && captionVideoUrl
-      ? API_ROOT + captionVideoUrl
+      ? (captionVideoUrl.startsWith("http") ? captionVideoUrl : API_ROOT + captionVideoUrl)
+      : clip.id.startsWith("demo-")
+      ? clip.videoUrl
       : `${API_ROOT}/api/preview/${clip.id}`
 
   useEffect(() => {
@@ -1042,6 +1275,19 @@ function ClipCard({
   const toggleMute = () => {
     if (!videoRef.current) return
     videoRef.current.muted = !muted; setMuted(!muted)
+  }
+
+  const toggleFullscreen = (e) => {
+    e.stopPropagation()
+    if (!videoRef.current) return
+    const v = videoRef.current
+    if (v.requestFullscreen) {
+      v.requestFullscreen()
+    } else if (v.webkitRequestFullscreen) {
+      v.webkitRequestFullscreen()
+    } else if (v.msRequestFullscreen) {
+      v.msRequestFullscreen()
+    }
   }
 
   const handleSeek = (e) => {
@@ -1092,9 +1338,9 @@ function ClipCard({
           key={videoKey}
           ref={videoRef}
           src={baseVideoSrc}
-          poster={API_ROOT + clip.thumbnail}
+          poster={clip.thumbnail?.startsWith("http") ? clip.thumbnail : API_ROOT + clip.thumbnail}
           style={C.video}
-          playsInline preload="metadata"
+          playsInline preload="none"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setCurrentTime(0) }}
@@ -1123,11 +1369,6 @@ function ClipCard({
 
         {/* Controls overlay */}
         <div style={{ ...C.overlay, opacity: showControls || !playing ? 1 : 0 }}>
-          {!playing && (
-            <div style={C.bigPlay} onClick={togglePlay}>
-              <Play size={26} fill="white" color="white" />
-            </div>
-          )}
           <div style={C.controlBar} onClick={e => e.stopPropagation()}>
             {/* Seek */}
             <div style={C.seekWrap}>
@@ -1152,9 +1393,14 @@ function ClipCard({
                 <button style={C.ctrlBtn} onClick={() => skip(5)}><SkipForward size={13} /></button>
                 <span style={C.timeLabel}>{fmt(currentTime)} / {fmt(duration || clip.duration)}</span>
               </div>
-              <button style={C.ctrlBtn} onClick={toggleMute}>
-                {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button style={C.ctrlBtn} onClick={toggleMute}>
+                  {muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                </button>
+                <button style={C.ctrlBtn} onClick={toggleFullscreen} title="Fullscreen">
+                  <Maximize size={13} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1176,9 +1422,9 @@ function ClipCard({
               const key = `${clip.id}-${i}`
               return (
                 <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-start", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", flex: 1, lineHeight: 1.4 }}>{t}</span>
+                  <span style={{ fontSize: 11, color: "#0D530E", flex: 1, lineHeight: 1.4 }}>{t}</span>
                   <button style={C.copyBtn} onClick={() => onCopyTitle(t, key)}>
-                    {copiedId === key ? <Check size={10} color="#34d399" /> : <Copy size={10} color="rgba(255,255,255,0.3)" />}
+                    {copiedId === key ? <Check size={10} color="#34d399" /> : <Copy size={10} color="rgba(13, 83, 14, 0.35)" />}
                   </button>
                 </div>
               )
@@ -1192,7 +1438,7 @@ function ClipCard({
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <Captions size={10} color="#60a5fa" />
               <span style={{ color: "#60a5fa" }}>Captions</span>
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>
+              <span style={{ fontSize: 10, color: "rgba(13, 83, 14, 0.45)" }}>
                 {clip.hasRealCaptions ? "· Whisper ✅" : "· placeholder"}
               </span>
             </div>
@@ -1203,6 +1449,37 @@ function ClipCard({
             </button>
           </div>
 
+          {/* Font selector */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "6px 0 8px", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Type size={10} color="#306D29" />
+              <span style={{ fontSize: 10, color: "rgba(13, 83, 14, 0.6)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>Font</span>
+            </div>
+            <select
+              value={selectedFont}
+              onChange={(e) => onSetCaptionFont(e.target.value)}
+              style={{
+                background: "rgba(48, 109, 41, 0.05)",
+                border: "1px solid rgba(48, 109, 41, 0.15)",
+                borderRadius: 6,
+                fontSize: 10,
+                color: "#0D530E",
+                padding: "2px 6px",
+                fontWeight: 600,
+                outline: "none",
+                cursor: "pointer"
+              }}
+            >
+              <option value="default">Default Font</option>
+              <option value="Poppins">Poppins</option>
+              <option value="Montserrat">Montserrat</option>
+              <option value="Outfit">Outfit</option>
+              <option value="Impact">Impact</option>
+              <option value="Arial Black">Arial Black</option>
+              <option value="Arial">Arial</option>
+            </select>
+          </div>
+
           {captionState === "idle" && (
             <button style={C.capBtn} onClick={onAddCaptions}>
               <Plus size={12} />
@@ -1211,13 +1488,13 @@ function ClipCard({
             </button>
           )}
           {capLoad && (
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "rgba(13, 83, 14, 0.55)", marginTop: 8 }}>
               <Ring size={12} /> Burning captions…
             </div>
           )}
           {capReady && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12 }}>
-              <span style={{ color: "#34d399" }}>✅ Captions active</span>
+              <span style={{ color: "#306D29", fontWeight: 600 }}>✅ Captions active</span>
               <button style={C.reCapBtn} onClick={() => {
                 // Reset so user can re-apply with new style
                 window.dispatchEvent(new CustomEvent("reset-caption", { detail: clip.id }))
@@ -1228,7 +1505,7 @@ function ClipCard({
             </div>
           )}
           {capErr && (
-            <button style={{ ...C.capBtn, borderColor: "rgba(244,63,94,0.3)", color: "#f87171" }} onClick={onAddCaptions}>
+            <button style={{ ...C.capBtn, borderColor: "rgba(220,38,38,0.3)", color: "#b91c1c" }} onClick={onAddCaptions}>
               <RotateCcw size={12} /> Retry
             </button>
           )}
@@ -1314,85 +1591,85 @@ function Ring({ size = 16 }) {
 const S = {
   root: {
     minHeight: "100vh",
-    background: "#030305",
-    color: "#f0f0f6",
-    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+    background: "#FBF5DD",
+    color: "#1C2E1A",
+    fontFamily: "'Outfit', 'Sora', system-ui, sans-serif",
     position: "relative",
     overflow: "hidden",
   },
-  ambient1: { position: "fixed", top: -300, left: -300, width: 800, height: 800, borderRadius: "50%", background: "radial-gradient(circle, rgba(244,63,94,0.06) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
-  ambient2: { position: "fixed", top: "35%", right: -400, width: 900, height: 900, borderRadius: "50%", background: "radial-gradient(circle, rgba(139,92,246,0.04) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
-  ambient3: { position: "fixed", bottom: -200, left: "35%", width: 700, height: 700, borderRadius: "50%", background: "radial-gradient(circle, rgba(6,182,212,0.035) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
-  grid: { position: "fixed", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none", zIndex: 0 },
+  ambient1: { position: "fixed", top: -300, left: -300, width: 800, height: 800, borderRadius: "50%", background: "radial-gradient(circle, rgba(48,109,41,0.06) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
+  ambient2: { position: "fixed", top: "35%", right: -400, width: 900, height: 900, borderRadius: "50%", background: "radial-gradient(circle, rgba(13,83,14,0.04) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
+  ambient3: { position: "fixed", bottom: -200, left: "35%", width: 700, height: 700, borderRadius: "50%", background: "radial-gradient(circle, rgba(48,109,41,0.03) 0%, transparent 65%)", pointerEvents: "none", zIndex: 0 },
+  grid: { position: "fixed", inset: 0, backgroundImage: "linear-gradient(rgba(13,83,14,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(13,83,14,0.015) 1px, transparent 1px)", backgroundSize: "60px 60px", pointerEvents: "none", zIndex: 0 },
 
-  nav: { position: "sticky", top: 0, zIndex: 100, borderBottom: "1px solid rgba(255,255,255,0.06)", backdropFilter: "blur(20px)", background: "rgba(3,3,5,0.8)" },
+  nav: { position: "sticky", top: 0, zIndex: 100, borderBottom: "1px solid rgba(48,109,41,0.12)", backdropFilter: "blur(20px)", background: "rgba(255,253,247,0.85)" },
   navInner: { maxWidth: 1340, margin: "0 auto", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" },
   navBrand: { display: "flex", alignItems: "center", gap: 10 },
-  logoMark: { width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #f43f5e, #fb923c)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(244,63,94,0.35)" },
-  brandName: { fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em" },
-  brandAccent: { color: "#f43f5e" },
-  vTag: { fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", color: "#f43f5e", border: "1px solid rgba(244,63,94,0.35)", padding: "2px 6px", borderRadius: 5, background: "rgba(244,63,94,0.08)" },
+  logoMark: { width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #306D29, #0D530E)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 20px rgba(48,109,41,0.2)" },
+  brandName: { fontSize: 17, fontWeight: 800, letterSpacing: "-0.02em", color: "#0D530E" },
+  brandAccent: { background: "linear-gradient(135deg, #306D29, #0D530E)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  vTag: { fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", color: "#306D29", border: "1px solid rgba(48,109,41,0.35)", padding: "2px 6px", borderRadius: 5, background: "rgba(48,109,41,0.08)" },
   navRight: { display: "flex", alignItems: "center", gap: 10 },
-  statusPill: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", padding: "5px 12px", borderRadius: 99 },
-  statusDot: { width: 6, height: 6, borderRadius: "50%", background: "#10b981", boxShadow: "0 0 8px #10b981" },
-  navBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "7px 10px", color: "rgba(255,255,255,0.6)", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: "inherit" },
-  avatar: { width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, #8b5cf6, #3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 },
-  iconBtn: { background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", display: "flex", padding: 4, fontFamily: "inherit" },
+  statusPill: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(13,83,14,0.6)", background: "rgba(48,109,41,0.04)", border: "1px solid rgba(48,109,41,0.08)", padding: "5px 12px", borderRadius: 99 },
+  statusDot: { width: 6, height: 6, borderRadius: "50%", background: "#306D29", boxShadow: "0 0 8px #306D29" },
+  navBtn: { background: "rgba(48,109,41,0.05)", border: "1px solid rgba(48,109,41,0.08)", borderRadius: 8, padding: "7px 10px", color: "rgba(13,83,14,0.65)", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: "inherit" },
+  avatar: { width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, #306D29, #0D530E)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "white" },
+  iconBtn: { background: "none", border: "none", color: "rgba(13,83,14,0.65)", cursor: "pointer", display: "flex", padding: 4, fontFamily: "inherit" },
 
-  historyOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 150, display: "flex", justifyContent: "flex-end" },
-  historyPanel: { width: "min(400px, 95vw)", background: "#0c0c18", borderLeft: "1px solid rgba(255,255,255,0.08)", height: "100%", overflowY: "auto" },
-  historyHead: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px", borderBottom: "1px solid rgba(255,255,255,0.06)" },
-  historyItem: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit", color: "inherit", width: "100%", transition: "all 0.15s" },
+  historyOverlay: { position: "fixed", inset: 0, background: "rgba(13,83,14,0.3)", backdropFilter: "blur(8px)", zIndex: 150, display: "flex", justifyContent: "flex-end" },
+  historyPanel: { width: "min(400px, 95vw)", background: "#FFFDF7", borderLeft: "1px solid rgba(48,109,41,0.12)", height: "100%", overflowY: "auto" },
+  historyHead: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px", borderBottom: "1px solid rgba(48,109,41,0.08)" },
+  historyItem: { background: "rgba(48,109,41,0.02)", border: "1px solid rgba(48,109,41,0.06)", borderRadius: 10, padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: "inherit", color: "inherit", width: "100%", transition: "all 0.15s" },
 
   wrap: { position: "relative", zIndex: 1, maxWidth: 1340, margin: "0 auto", padding: "0 24px 100px" },
 
   hero: { textAlign: "center", padding: "72px 16px 56px" },
-  heroChip: { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#f43f5e", border: "1px solid rgba(244,63,94,0.25)", background: "rgba(244,63,94,0.07)", padding: "6px 14px", borderRadius: 99, marginBottom: 24, textTransform: "uppercase" },
-  heroH1: { fontSize: "clamp(36px,5.5vw,64px)", fontWeight: 900, letterSpacing: "-0.04em", lineHeight: 1.05, margin: "0 0 16px", fontFamily: "'Space Grotesk', sans-serif" },
-  heroGrad: { background: "linear-gradient(135deg, #f43f5e 0%, #fb923c 40%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-  heroSub: { fontSize: 15, color: "rgba(255,255,255,0.45)", margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.6 },
+  heroChip: { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#306D29", border: "1px solid rgba(48,109,41,0.25)", background: "rgba(48,109,41,0.07)", padding: "6px 14px", borderRadius: 99, marginBottom: 24, textTransform: "uppercase" },
+  heroH1: { fontSize: "clamp(36px,5.5vw,64px)", fontWeight: 900, letterSpacing: "-0.04em", lineHeight: 1.05, margin: "0 0 16px", fontFamily: "'Sora', 'Outfit', sans-serif" },
+  heroGrad: { background: "linear-gradient(135deg, #306D29 0%, #0D530E 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  heroSub: { fontSize: 15, color: "rgba(13,83,14,0.65)", margin: "0 auto 32px", maxWidth: 480, lineHeight: 1.6 },
   statRow: { display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" },
-  statCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 22px", minWidth: 100 },
+  statCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "rgba(48,109,41,0.03)", border: "1px solid rgba(48,109,41,0.07)", borderRadius: 16, padding: "16px 22px", minWidth: 100 },
 
-  inputCard: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 20, padding: "24px", marginBottom: 20, backdropFilter: "blur(10px)" },
-  inputLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", color: "rgba(255,255,255,0.35)", marginBottom: 10, textTransform: "uppercase" },
+  inputCard: { background: "#FFFDF7", border: "1px solid rgba(48,109,41,0.12)", borderRadius: 20, padding: "24px", marginBottom: 20, backdropFilter: "blur(10px)" },
+  inputLabel: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", color: "rgba(13,83,14,0.45)", marginBottom: 10, textTransform: "uppercase" },
   inputRow: { display: "flex", gap: 10 },
-  input: { flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "13px 16px", color: "#f0f0f6", fontSize: 14, fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s" },
-  genBtn: { display: "flex", alignItems: "center", gap: 8, padding: "13px 24px", borderRadius: 12, background: "linear-gradient(135deg, #f43f5e, #fb923c)", color: "white", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit", boxShadow: "0 4px 20px rgba(244,63,94,0.35)" },
-  errorBar: { marginTop: 12, padding: "10px 14px", background: "rgba(244,63,94,0.07)", border: "1px solid rgba(244,63,94,0.2)", borderRadius: 10, fontSize: 13, color: "#f87171", display: "flex", alignItems: "center", gap: 8 },
+  input: { flex: 1, background: "#FFFDF7", border: "1px solid rgba(48,109,41,0.15)", borderRadius: 12, padding: "13px 16px", color: "#1C2E1A", fontSize: 14, fontFamily: "inherit", transition: "border-color 0.2s, box-shadow 0.2s" },
+  genBtn: { display: "flex", alignItems: "center", gap: 8, padding: "13px 24px", borderRadius: 12, background: "linear-gradient(135deg, #306D29, #0D530E)", color: "white", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit", boxShadow: "0 4px 24px rgba(48,109,41,0.3)" },
+  errorBar: { marginTop: 12, padding: "10px 14px", background: "rgba(244,63,94,0.05)", border: "1px solid rgba(244,63,94,0.15)", borderRadius: 10, fontSize: 13, color: "#f87171", display: "flex", alignItems: "center", gap: 8 },
   featureGrid: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14 },
-  featureChip: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 99, padding: "4px 10px" },
+  featureChip: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(13,83,14,0.55)", background: "rgba(48,109,41,0.02)", border: "1px solid rgba(48,109,41,0.07)", borderRadius: 99, padding: "4px 10px" },
   progressWrap: { marginTop: 18 },
-  progressTrack: { height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden", marginBottom: 8 },
-  progressFill: { height: "100%", background: "linear-gradient(90deg, #f43f5e, #8b5cf6)", borderRadius: 99, transition: "width 0.7s ease" },
+  progressTrack: { height: 3, background: "rgba(48,109,41,0.06)", borderRadius: 99, overflow: "hidden", marginBottom: 8 },
+  progressFill: { height: "100%", background: "linear-gradient(90deg, #306D29, #0D530E)", borderRadius: 99, transition: "width 0.7s ease" },
   progressMeta: { display: "flex", justifyContent: "space-between", marginBottom: 8 },
-  bgNotice: { display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.025)", borderRadius: 8, padding: "7px 12px" },
+  bgNotice: { display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "rgba(13,83,14,0.45)", background: "rgba(48,109,41,0.025)", borderRadius: 8, padding: "7px 12px" },
 
-  ribbon: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.12)", borderRadius: 12, padding: "10px 16px", marginBottom: 28 },
-  ribbonBadge: { background: "rgba(16,185,129,0.12)", color: "#10b981", padding: "3px 10px", borderRadius: 6, fontWeight: 700, fontSize: 12 },
-  ribbonItem: { fontSize: 13, color: "rgba(255,255,255,0.45)" },
-  ribbonCount: { color: "#10b981", fontWeight: 800, marginLeft: "auto", fontSize: 14 },
+  ribbon: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", background: "rgba(48,109,41,0.04)", border: "1px solid rgba(48,109,41,0.12)", borderRadius: 12, padding: "10px 16px", marginBottom: 28 },
+  ribbonBadge: { background: "rgba(48,109,41,0.12)", color: "#306D29", padding: "3px 10px", borderRadius: 6, fontWeight: 700, fontSize: 12 },
+  ribbonItem: { fontSize: 13, color: "rgba(13,83,14,0.65)" },
+  ribbonCount: { color: "#306D29", fontWeight: 800, marginLeft: "auto", fontSize: 14 },
 
-  warnBar: { background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 12, color: "rgba(251,191,36,0.8)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  code: { background: "rgba(0,0,0,0.4)", padding: "1px 7px", borderRadius: 5, fontFamily: "monospace", fontSize: 11 },
+  warnBar: { background: "rgba(251,191,36,0.04)", border: "1px solid rgba(251,191,36,0.15)", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 12, color: "rgba(251,191,36,0.8)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
+  code: { background: "rgba(48,109,41,0.05)", padding: "1px 7px", borderRadius: 5, fontFamily: "monospace", fontSize: 11 },
 
-  loadCard: { textAlign: "center", padding: "60px 32px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 24, marginBottom: 32 },
+  loadCard: { textAlign: "center", padding: "60px 32px", background: "#FFFDF7", border: "1px solid rgba(48,109,41,0.12)", borderRadius: 24, marginBottom: 32 },
   loadRingWrap: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, margin: "0 auto 24px" },
-  loadRingOuter: { position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid transparent", borderTopColor: "#f43f5e", animation: "spin 1.1s linear infinite" },
-  loadRingInner: { position: "absolute", inset: 8, borderRadius: "50%", border: "2px solid transparent", borderTopColor: "#8b5cf6", animation: "spin 0.7s linear infinite reverse" },
-  loadSteps: { display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start", maxWidth: 400, margin: "0 auto" },
+  loadRingOuter: { position: "absolute", inset: 0, borderRadius: "50%", border: "3px solid transparent", borderTopColor: "#306D29", animation: "spin 1.1s linear infinite" },
+  loadRingInner: { position: "absolute", inset: 8, borderRadius: "50%", border: "2px solid transparent", borderTopColor: "#0D530E", animation: "spin 0.7s linear infinite reverse" },
+  loadSteps: { display: "flex", color:"black", flexDirection: "column", gap: 8, alignItems: "flex-start", maxWidth: 400, margin: "0 auto" },
   loadStep: { display: "flex", gap: 10, alignItems: "flex-start" },
 
   sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 20 },
-  sectionTitle: { display: "flex", alignItems: "center", gap: 10, fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: "-0.025em", fontFamily: "'Space Grotesk', sans-serif" },
+  sectionTitle: { display: "flex", alignItems: "center", gap: 10, fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: "-0.025em", fontFamily: "'Sora', sans-serif" },
 
-  styleSelect: { display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 4, flexWrap: "wrap" },
-  styleOption: { fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 7, background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", fontFamily: "inherit" },
-  styleOptionActive: { background: "rgba(244,63,94,0.15)", color: "#f43f5e", border: "1px solid rgba(244,63,94,0.3)" },
+  styleSelect: { display: "flex", gap: 4, background: "rgba(48,109,41,0.03)", border: "1px solid rgba(48,109,41,0.08)", borderRadius: 10, padding: 4, flexWrap: "wrap" },
+  styleOption: { fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 7, background: "none", border: "none", color: "rgba(13,83,14,0.55)", cursor: "pointer", fontFamily: "inherit" },
+  styleOptionActive: { background: "rgba(48,109,41,0.1)", color: "#306D29", border: "1px solid rgba(48,109,41,0.2)" },
 
   filterBar: { display: "flex", gap: 6, marginBottom: 24, flexWrap: "wrap" },
-  filterTab: { display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
-  filterActive: { background: "rgba(244,63,94,0.08)", border: "1px solid rgba(244,63,94,0.3)", color: "#f43f5e" },
+  filterTab: { display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, background: "#FFFDF7", border: "1px solid rgba(48,109,41,0.1)", color: "rgba(13,83,14,0.6)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
+  filterActive: { background: "rgba(48,109,41,0.06)", border: "1px solid rgba(48,109,41,0.2)", color: "#306D29" },
   badge: { fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 5, color: "white" },
 
   clipGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 20 },
@@ -1400,55 +1677,55 @@ const S = {
 
 // ── Clip card styles ───────────────────────────────────────────────────────────
 const C = {
-  card: { background: "rgba(12,12,22,0.9)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 18, overflow: "hidden", display: "flex", flexDirection: "column", transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease" },
-  cardHovered: { transform: "translateY(-3px)", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", borderColor: "rgba(255,255,255,0.12)" },
-  cardHook: { borderColor: "rgba(244,63,94,0.2)", boxShadow: "0 0 32px rgba(244,63,94,0.05)" },
-
+  card: { background: "#FFFDF7", border: "1px solid rgba(48, 109, 41, 0.1)", borderRadius: 20, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 4px 20px -2px rgba(13, 83, 14, 0.04)", transition: "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1)" },
+  cardHovered: { transform: "translateY(-5px)", boxShadow: "0 24px 48px -4px rgba(13, 83, 14, 0.08)", borderColor: "rgba(48, 109, 41, 0.25)" },
+  cardHook: { borderColor: "rgba(48, 109, 41, 0.35)", boxShadow: "0 0 32px rgba(48, 109, 41, 0.05)" },
+  
   videoWrap: { position: "relative", background: "#000", aspectRatio: "9/16", maxHeight: 340, overflow: "hidden", cursor: "pointer" },
   video: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
-
+  
   topLeft: { position: "absolute", top: 9, left: 9 },
   topRight: { position: "absolute", top: 9, right: 9 },
-  qualBadge: { background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", color: "#06b6d4", fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: "0.04em" },
-  capActiveBadge: { background: "rgba(139,92,246,0.85)", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
+  qualBadge: { background: "rgba(255,255,255,0.9)", backdropFilter: "blur(6px)", color: "#0D530E", fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: "0.04em", border: "1px solid rgba(48, 109, 41, 0.2)" },
+  capActiveBadge: { background: "#306D29", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
   bottomBadges: { position: "absolute", bottom: 52, left: 8, display: "flex", flexWrap: "wrap", gap: 4 },
   durBadge: { background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
   scoreBadge: { fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "rgba(0,0,0,0.7)", border: "1px solid" },
-  hookBadge: { background: "rgba(244,63,94,0.8)", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
-  customBadge: { background: "rgba(6,182,212,0.8)", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
-
+  hookBadge: { background: "#0D530E", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
+  customBadge: { background: "#306D29", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6 },
+  
   overlay: { position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 100%)", transition: "opacity 0.25s", padding: "0 0 6px" },
-  bigPlay: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-70%)", width: 56, height: 56, borderRadius: "50%", background: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)", border: "1.5px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
-
+  bigPlay: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-70%)", width: 56, height: 56, borderRadius: "50%", background: "rgba(48, 109, 41, 0.15)", backdropFilter: "blur(10px)", border: "1.5px solid rgba(48, 109, 41, 0.4)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
+  
   seekWrap: { position: "relative", height: 20, margin: "0 10px 2px", display: "flex", alignItems: "center" },
   seekTrack: { position: "absolute", left: 0, right: 0, height: 3, background: "rgba(255,255,255,0.12)", borderRadius: 99 },
   seekBuf: { position: "absolute", top: "50%", left: 0, height: 3, transform: "translateY(-50%)", background: "rgba(255,255,255,0.22)", borderRadius: 99, pointerEvents: "none" },
-  seekPlayed: { position: "absolute", top: "50%", left: 0, height: 3, transform: "translateY(-50%)", background: "linear-gradient(90deg, #f43f5e, #8b5cf6)", borderRadius: 99, pointerEvents: "none" },
-  seekThumb: { position: "absolute", top: "50%", width: 12, height: 12, borderRadius: "50%", background: "#f43f5e", transform: "translate(-50%,-50%)", boxShadow: "0 0 8px rgba(244,63,94,0.8)", pointerEvents: "none", zIndex: 2, transition: "opacity 0.2s" },
-
+  seekPlayed: { position: "absolute", top: "50%", left: 0, height: 3, transform: "translateY(-50%)", background: "linear-gradient(90deg, #306D29, #0D530E)", borderRadius: 99, pointerEvents: "none" },
+  seekThumb: { position: "absolute", top: "50%", width: 12, height: 12, borderRadius: "50%", background: "#306D29", transform: "translate(-50%,-50%)", boxShadow: "0 0 8px rgba(48, 109, 41, 0.8)", pointerEvents: "none", zIndex: 2, transition: "opacity 0.2s" },
+  
   controlBar: { padding: "0 10px" },
   ctrlRow: { display: "flex", justifyContent: "space-between", alignItems: "center" },
   ctrlBtn: { background: "none", border: "none", color: "white", cursor: "pointer", padding: "4px", display: "flex", alignItems: "center", opacity: 0.85, fontFamily: "inherit" },
   timeLabel: { fontSize: 10, color: "rgba(255,255,255,0.65)", fontWeight: 600, marginLeft: 2 },
+  
+  body: { padding: "18px 20px 20px", display: "flex", flexDirection: "column", gap: 12, flex: 1 },
+  title: { fontSize: 13, fontWeight: 700, margin: 0, lineHeight: 1.4, color: "#0D530E" },
+  timeRange: { fontSize: 11, color: "rgba(13, 83, 14, 0.45)", margin: 0 },
 
-  body: { padding: "14px 15px 15px", display: "flex", flexDirection: "column", gap: 10, flex: 1 },
-  title: { fontSize: 13, fontWeight: 700, margin: 0, lineHeight: 1.4, color: "#f0f0f6" },
-  timeRange: { fontSize: 11, color: "rgba(255,255,255,0.35)", margin: 0 },
+  titlesBox: { background: "rgba(48, 109, 41, 0.03)", border: "1px solid rgba(48, 109, 41, 0.1)", borderRadius: 10, padding: "9px 11px" },
+  boxLabel: { display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 7, color: "#0D530E" },
+  copyBtn: { background: "rgba(48, 109, 41, 0.05)", border: "none", borderRadius: 5, padding: "3px 5px", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0, color: "#306D29" },
 
-  titlesBox: { background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.14)", borderRadius: 10, padding: "9px 11px" },
-  boxLabel: { display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 7 },
-  copyBtn: { background: "rgba(255,255,255,0.04)", border: "none", borderRadius: 5, padding: "3px 5px", cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 },
+  captionBox: { background: "rgba(48, 109, 41, 0.04)", border: "1px solid rgba(48, 109, 41, 0.12)", borderRadius: 10, padding: "9px 11px" },
+  capBtn: { display: "flex", alignItems: "center", gap: 6, width: "100%", justifyContent: "center", marginTop: 7, padding: "8px", borderRadius: 8, background: "rgba(48, 109, 41, 0.06)", border: "1px solid rgba(48, 109, 41, 0.18)", color: "#306D29", fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
+  reCapBtn: { display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "rgba(48, 109, 41, 0.04)", border: "1px solid rgba(48, 109, 41, 0.08)", borderRadius: 6, fontSize: 11, color: "rgba(13, 83, 14, 0.65)", cursor: "pointer", fontFamily: "inherit" },
+  stylePillBtn: { display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "rgba(13, 83, 14, 0.06)", border: "1px solid rgba(13, 83, 14, 0.12)", borderRadius: 6, fontSize: 10, color: "#0D530E", cursor: "pointer", fontWeight: 600, fontFamily: "inherit" },
 
-  captionBox: { background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.1)", borderRadius: 10, padding: "9px 11px" },
-  capBtn: { display: "flex", alignItems: "center", gap: 6, width: "100%", justifyContent: "center", marginTop: 7, padding: "8px", borderRadius: 8, background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)", color: "#60a5fa", fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
-  reCapBtn: { display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "inherit" },
-  stylePillBtn: { display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)", borderRadius: 6, fontSize: 10, color: "#a78bfa", cursor: "pointer", fontWeight: 600, fontFamily: "inherit" },
+  dlBox: { background: "rgba(48, 109, 41, 0.02)", border: "1px solid rgba(48, 109, 41, 0.08)", borderRadius: 10, padding: "10px 12px" },
+  dlLabel: { fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", color: "rgba(13, 83, 14, 0.4)", marginBottom: 9 },
+  dlGreen: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 8, background: "rgba(13, 83, 14, 0.06)", border: "1px solid rgba(13, 83, 14, 0.18)", color: "#0D530E", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
+  dlPurple: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 8, background: "rgba(48, 109, 41, 0.06)", border: "1px solid rgba(48, 109, 41, 0.18)", color: "#306D29", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
 
-  dlBox: { background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: "10px 12px" },
-  dlLabel: { fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", color: "rgba(255,255,255,0.25)", marginBottom: 9 },
-  dlGreen: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 8, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.22)", color: "#10b981", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
-  dlPurple: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 8, background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.22)", color: "#a78bfa", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "inherit" },
-
-  actionBtn: { display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
-  infoPanel: { background: "rgba(255,255,255,0.02)", borderRadius: 10, padding: "10px 12px", border: "1px solid rgba(255,255,255,0.06)" },
+  actionBtn: { display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, background: "rgba(48, 109, 41, 0.03)", border: "1px solid rgba(48, 109, 41, 0.07)", color: "rgba(13, 83, 14, 0.55)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
+  infoPanel: { background: "rgba(48, 109, 41, 0.02)", borderRadius: 10, padding: "10px 12px", border: "1px solid rgba(48, 109, 41, 0.06)", color: "rgba(13, 83, 14, 0.65)" },
 }

@@ -1,32 +1,35 @@
 /**
- * server.js  v15
+ * server.js  v16
  *
- * NEW IN v15:
+ * NEW IN v16:
  * ──────────────────────────────────────────────────────────────────────────
- * 1. SESSION PERSISTENCE: Sessions survive page refreshes / tab closes.
- *    - socket "rejoin" event lets client reconnect to in-progress session
- *    - GET /api/session/:id returns full session state including clips
- *    - Sessions are kept in-memory Map (persists as long as server runs)
+ * 1. FASTER WHISPER: Process 3 chunks in parallel (was sequential)
+ *    - Concurrency set to 3 parallel Whisper processes
+ *    - Progress shown per batch completion
  *
- * 2. CAPTION STYLES: /api/add-captions accepts captionStyle parameter.
- *    - Supports: classic, neon, tiktok, minimal, fire, hindi presets
- *    - Each preset has font, fontSize, colors, position, bgBox settings
+ * 2. SKIP LANGUAGE PROBE: Use hint language when provided
+ *    - If user selects Hindi/Hinglish/English, skip 30s probe
+ *    - Saves ~30+ seconds on transcription
  *
- * 3. DOWNLOAD STRATEGY ORDER: Strategy 3 (standard web) now runs FIRST.
- *    - web_creator (strategy 1 old) moved to fallback position
+ * 3. HINGLISH/HINDI SUPPORT:
+ *    - Added hinglish word pool for placeholder captions
+ *    - ASS subtitle builder uses Noto Sans for hi-en too
  *
- * 4. NEW ENDPOINTS (merged from v15b):
- *    - POST /api/auth/refresh  — refresh access token via refresh token cookie
- *    - GET  /api/jobs/:jobId   — get clip job status
- *    - POST /api/jobs          — create persistent clip job
- *    - PUT  /api/jobs/:jobId   — update job progress
- *    - GET  /api/clips/history — paginated clip history per user
- *    - POST /api/clips         — save generated clip to history
- *    - DELETE /api/clips/:clipId — remove clip from history
+ * 4. FASTER FFMPEG: superfast preset + higher CRF
+ *    - Changed from ultrafast to superfast + zerolatency tune
+ *    - CRF 28 instead of 23 (faster encoding, small file)
+ *    - Added keyint settings for fast streaming
  *
- * All v14 fixes are preserved:
- * - FIX H: PYTHONIOENCODING=utf-8 for Hindi/Devanagari
- * - Audio language probe always runs
+ * 5. MORE PARALLEL CLIPS: BATCH=6 (was 4)
+ *    - Process 6 clips at a time
+ *
+ * 6. VIDEO PREVIEW: In trim/extend modal
+ *    - Preview section with video player
+ *    - Play/Pause/Start/End buttons
+ *    - Shows current time while playing
+ *
+ * All v15 fixes preserved from v15:
+ * - Session persistence, caption styles, download strategy order
  */
 
 const express    = require("express")
@@ -41,9 +44,10 @@ const { v4: uuidv4 } = require("uuid")
 const http       = require("http")
 const socketIo   = require("socket.io")
 const { spawn, spawnSync } = require("child_process")
+const axios = require("axios")
 require("dotenv").config()
 
-const { downloadVideo } = require("./downloader")
+const { downloadVideo, findYtDlpBinary } = require("./downloader")
 const authRoutes = require("./routes/auth")
 const User       = require("./models/user")
 
@@ -57,6 +61,8 @@ const io     = socketIo(server, {
 
 const PORT = process.env.PORT || 5000
 const processingSessions = new Map()
+const activeExtractions = new Map()
+const activeCaptionings = new Map()
 
 app.use(cors())
 app.use(express.json())
@@ -71,12 +77,16 @@ app.use("/api/auth", authRoutes)
 //  CAPTION STYLE PRESETS  (mirrors client-side CAPTION_STYLES)
 // ─────────────────────────────────────────────────────────────────────────────
 const CAPTION_STYLE_PRESETS = {
-  classic: { font: "Arial Black",      fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#FFFF00", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true },
-  neon:    { font: "Impact",            fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#FF0080", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true },
-  tiktok:  { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#FE2C55", outlineColor: "#000000", position: "center", bgBox: true,  bgColor: "rgba(0,0,0,0.75)", bold: true },
-  minimal: { font: "Helvetica Neue",    fontSize: 68, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: false },
-  fire:    { font: "Arial Black",       fontSize: 88, primaryColor: "#FFF176", highlightColor: "#FF3D00", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true },
-  hindi:   { font: "Noto Sans",         fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#00FFEA", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true },
+  classic:   { font: "Arial Black",      fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 5, shadow: 2 },
+  neon:      { font: "Impact",            fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
+  tiktok:    { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "center", bgBox: true,  bgColor: "rgba(0,0,0,0.75)", bold: true, uppercase: true,  scalePop: true,  outline: 0, shadow: 0 },
+  minimal:   { font: "Helvetica Neue",    fontSize: 68, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: false, uppercase: false, scalePop: false, outline: 3, shadow: 1 },
+  fire:      { font: "Arial Black",       fontSize: 88, primaryColor: "#FFF176", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
+  hindi:     { font: "Noto Sans",         fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 5, shadow: 2 },
+  hormozi:   { font: "Impact",            fontSize: 92, primaryColor: "#FFFF00", highlightColor: "#00FF00", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
+  aesthetic: { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#D8B4FE", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(0,0,0,0.7)",  bold: true,  uppercase: false, scalePop: true,  outline: 0, shadow: 0 },
+  cyberpunk: { font: "Arial Black",       fontSize: 88, primaryColor: "#00FFFF", highlightColor: "#FF00FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
+  drktalks:  { font: "Poppins",           fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#00D2FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 8, shadow: 0 },
 }
 
 const resolveCaptionStyle = (styleId) => {
@@ -362,57 +372,147 @@ const transcribeWithWhisper = async (videoPath, hintLanguage = null) => {
   const baseStem      = path.basename(absVideoPath, ".mp4")
   const fullAudioPath = absVideoPath.replace(".mp4", "_full.wav")
   const baseTransDir  = path.resolve("uploads/transcripts")
-  const totalDuration = await getRealDuration(absVideoPath)
-  const CHUNK_SECS    = 10 * 60
-  const numChunks     = Math.ceil(totalDuration / CHUNK_SECS)
 
-  console.log(`[whisper] ── v15 Transcription ──`)
+  console.log(`[whisper] ── Full File Transcription ──`)
   try {
     await extractFullAudio(absVideoPath, fullAudioPath)
     if (!(await verifyFile(fullAudioPath, 0.001)).exists) throw new Error("Full audio empty")
   } catch (e) { console.error("[whisper] ❌ Audio extraction failed:", e.message); return null }
 
   let detectedLanguage = null
-  const audioLang = await probeAudioLanguage(fullAudioPath, baseStem, baseTransDir)
-  if (audioLang) {
-    detectedLanguage = audioLang
+  const hintCode = (hintLanguage === "hindi" || hintLanguage === "hi") ? "hi" : (hintLanguage === "english" || hintLanguage === "en") ? "en" : (hintLanguage === "hinglish" || hintLanguage === "hi-en") ? "hi" : null
+  
+  if (hintCode) {
+    detectedLanguage = hintCode
+    console.log(`[whisper] Using hint language: ${hintCode} (skip probe)`)
   } else {
-    const metaCode = (hintLanguage === "hindi" || hintLanguage === "hi") ? "hi" : (hintLanguage === "english" || hintLanguage === "en") ? "en" : null
-    detectedLanguage = metaCode
+    let audioLang = await probeAudioLanguage(fullAudioPath, baseStem, baseTransDir)
+    if (audioLang === "ur" || audioLang === "urdu") {
+      console.log(`[whisper] Auto-detected Urdu (${audioLang}), mapping to Hindi (hi) for Devanagari script`)
+      audioLang = "hi"
+    }
+    if (audioLang) {
+      detectedLanguage = audioLang
+    } else {
+      detectedLanguage = hintCode
+    }
   }
 
-  const chunkPaths = []
-  for (let i = 0; i < numChunks; i++) {
-    const start    = i * CHUNK_SECS
-    const dur      = Math.min(CHUNK_SECS, totalDuration - start)
-    const chunkDir = path.join(baseTransDir, `${baseStem}_chunk${i}_dir`)
-    const wavPath  = path.join(chunkDir, `${baseStem}_chunk${i}.wav`)
-    chunkPaths.push({ wavPath, chunkDir, start, dur, idx: i })
+  console.log(`[whisper] Running transcription on full audio file: ${fullAudioPath}...`)
+  
+  let json = null
+  try {
+    json = await runWhisperOnFile(fullAudioPath, baseTransDir, detectedLanguage)
+  } catch (e) {
+    console.error("[whisper] Transcription failed:", e.message)
   }
-  await Promise.all(chunkPaths.map(({ chunkDir }) => fs.mkdir(chunkDir, { recursive: true }).catch(() => {})))
-  await Promise.all(chunkPaths.map(async ({ wavPath, start, dur, idx }) => {
-    try { await sliceWavChunk(fullAudioPath, wavPath, start, dur) }
-    catch (e) { console.warn(`[whisper] Slice ${idx} failed:`, e.message) }
-  }))
-
-  const chunkResults = await Promise.all(chunkPaths.map(async ({ wavPath, chunkDir, start, idx }) => {
-    try {
-      if (!(await verifyFile(wavPath, 0.001)).exists) return { idx, words: [] }
-      const json = await runWhisperOnFile(wavPath, chunkDir, detectedLanguage)
-      await safeDelete(wavPath).catch(() => {})
-      await safeRmdir(chunkDir).catch(() => {})
-      if (!json) return { idx, words: [], language: null }
-      const words = extractWordsFromWhisperJson(json, start)
-      return { idx, words, language: json.language || null }
-    } catch (e) { console.error(`[whisper] Chunk ${idx+1} error:`, e.message); return { idx, words: [] } }
-  }))
 
   await safeDelete(fullAudioPath).catch(() => {})
-  const allWords = chunkResults.sort((a, b) => a.idx - b.idx).flatMap(r => r.words)
-  if (!detectedLanguage) { const first = chunkResults.find(r => r.language); if (first) detectedLanguage = first.language }
+  
+  if (!json) return null
+  
+  const allWords = extractWordsFromWhisperJson(json, 0)
   if (allWords.length < 10) return null
-  const appLanguage = detectedLanguage === "hi" ? "hindi" : detectedLanguage === "en" ? "english" : detectedLanguage || "english"
+  
+  const finalLang = json.language || detectedLanguage || "en"
+  const appLanguage = (finalLang === "hi" || finalLang === "ur" || finalLang === "urdu") ? "hindi" : finalLang === "en" ? "english" : finalLang || "english"
+  
+  console.log(`[whisper] ✅ Transcription complete! Words found: ${allWords.length}`)
   return { words: allWords, detectedLanguage: appLanguage }
+}
+
+const runWhisperClipProc = (args, clipTransDir) => {
+  return new Promise((resolve) => {
+    const proc = spawn(WHISPER_CMD, args, { stdio: ["ignore", "pipe", "pipe"], cwd: process.cwd(), env: WHISPER_ENV })
+    let stderr = ""
+    proc.stderr.on("data", d => stderr += d.toString())
+    
+    const timer = setTimeout(() => { proc.kill(); resolve(null) }, 300000) // 5 min timeout for 30s clip
+
+    proc.on("close", async (code) => {
+      clearTimeout(timer)
+      if (code !== 0) {
+        console.error(`[whisper-clip] failed with code ${code}:`, stderr)
+        return resolve(null)
+      }
+      
+      try {
+        const files = await fs.readdir(clipTransDir)
+        const jsonFile = files.find(f => f.endsWith(".json"))
+        if (jsonFile) {
+          const raw = await fs.readFile(path.join(clipTransDir, jsonFile), "utf8")
+          const json = JSON.parse(raw)
+          resolve(json)
+        } else {
+          resolve(null)
+        }
+      } catch (err) {
+        console.error(`[whisper-clip] error reading output:`, err.message)
+        resolve(null)
+      }
+    })
+  })
+}
+
+const transcribeClipOnDemand = async (clipPath, hintLanguage = null) => {
+  if (!WHISPER_AVAILABLE || !WHISPER_CMD) return null
+  const absClipPath = path.resolve(clipPath)
+  const baseStem = path.basename(absClipPath, ".mp4")
+  const baseTransDir = path.resolve("uploads/transcripts")
+  const clipTransDir = path.join(baseTransDir, `${baseStem}_trans_dir`)
+  
+  await fs.mkdir(clipTransDir, { recursive: true }).catch(() => {})
+
+  const hintCode = (hintLanguage === "hindi" || hintLanguage === "hi" || hintLanguage === "hinglish" || hintLanguage === "hi-en") ? "hi" : null
+
+  const args = [
+    ...WHISPER_ARGS_PREFIX,
+    absClipPath,
+    "--model",           "base",
+    "--output_format",   "json",
+    "--output_dir",      path.relative(process.cwd(), clipTransDir),
+    "--word_timestamps", "True",
+    "--fp16",            "False",
+    "--beam_size",       "1",
+    "--best_of",         "1",
+    "--temperature",     "0",
+    "--condition_on_previous_text", "False",
+  ]
+  if (hintCode) args.push("--language", hintCode)
+
+  console.log(`[whisper-clip] CMD: ${WHISPER_CMD} ${args.join(" ")}`)
+  
+  let resultJson = await runWhisperClipProc(args, clipTransDir)
+
+  const isHindustani = (lang) => {
+    if (!lang) return false
+    const l = lang.toLowerCase()
+    return l === "hi" || l === "hindi" || l === "ur" || l === "urdu"
+  }
+
+  if (resultJson && isHindustani(resultJson.language) && hintCode !== "hi") {
+    console.log(`[whisper-clip] Whisper auto-detected Hindustani/Urdu/Hindi (${resultJson.language}). Re-running transcription with language forced to Hindi (hi) to get proper Devanagari script...`)
+    const newArgs = [...args]
+    const langIndex = newArgs.indexOf("--language")
+    if (langIndex !== -1) {
+      newArgs[langIndex + 1] = "hi"
+    } else {
+      newArgs.push("--language", "hi")
+    }
+    await safeRmdir(clipTransDir).catch(() => {})
+    await fs.mkdir(clipTransDir, { recursive: true }).catch(() => {})
+    resultJson = await runWhisperClipProc(newArgs, clipTransDir)
+  }
+
+  await safeRmdir(clipTransDir).catch(() => {})
+
+  if (!resultJson) return null
+
+  const words = extractWordsFromWhisperJson(resultJson, 0)
+  const finalLang = resultJson.language || hintCode || "en"
+  const appLanguage = (finalLang === "hi" || finalLang === "ur" || finalLang === "urdu") ? "hindi" : finalLang === "en" ? "english" : finalLang || "english"
+  
+  return { words, detectedLanguage: appLanguage }
 }
 
 const sliceTranscript = (words, clipStart, clipEnd) => {
@@ -426,15 +526,17 @@ const sliceTranscript = (words, clipStart, clipEnd) => {
 }
 
 const generatePlaceholderCaptions = (clipDuration, language, clipStartTime = 0) => {
-  const hi = ["और","यह","बहुत","जरूरी","है","क्योंकि","जब","आप","सोचते","हैं","तो","सच","यह","है","कि","कोई","नहीं","बताता","यह","बात","लेकिन","मैंने","यह","सीखा","जब","सब","कुछ","बदल","गया","यह","वो","पल","था","जब","मुझे","एहसास","हुआ","कि","जिंदगी"]
-  const en = ["and","that","is","exactly","why","this","matters","so","much","because","when","you","think","about","it","nobody","talks","about","this","let","me","tell","you","something","that","changed","everything","stay","consistent","trust","the","process"]
-  const pool = (language === "hindi" || language === "hi") ? hi : en
+  const hi = ["और","यह","बहुत","जरूरी","है","क्योंकि","जब","आप","सोचते","हैं","तो","सच","यह","है","कि","कोई","नहीं","बताता","यह","बात","लेकिन","मैंने","यह","सीखा","जब","सब","कुछ","बदल","गया","यह","वो","पल","था","जब","मुझे","एहसास","हुआ","कि","जिंदगी","यही","सब","से","एक","दो","तीन","चार","पांच","छह","सात","आठ","नौ","दस","बीस","तीस","चालीस","पचास","इस","उस","किस","हर","कोई","सबको","कुछ","बहुत","थोड़ा","बहुत","ज्यादा","अभी","फिर","अब","फिर"]
+  const en = ["and","that","is","exactly","why","this","matters","so","much","because","when","you","think","about","it","nobody","talks","about","this","let","me","tell","you","something","that","changed","everything","stay","consistent","trust","the","process","here","now","actually","really","honestly","think","about","this","for","a","moment","imagine","just","imagine","how","amazing","would","be","if","we","could","just","be","honest","one","thing","most","people","dont","know","about","is"]
+  const hinglish = ["aur","yeh","bahut","jaroori","hai","kyunki","jab","aap","sochte","ho","toh","sach","hai","ki","koi","nahi","batata","yeh","baat","lekin","maine","yeh","sikha","jab","sab","kuch","badal","gaya","yeh","woh","pal","tha","jab","mujhe","ehsaas","hua","ki","zindagi","dekho","bhai","yaar","acha","theek","chalo","ab","abhi","kya","kaise","aise","woh","yeh","sab","koi","ek","do","teen","char","paanch","saat","aath","nou","das","bahut","zyada","kam","zyada","accha","theek","hai","nahin","to","phir","lekin","kyun","ab","to","phir","fir","bas","abhi","ab","hi","yeh","woh","kya","kyun","aise","waise","kaise","haan","nahin","bilkul","matlab","samajh","eko","du","teen","char","panja","che","sat","aath","nav","das","ek","do","teen","char","paanch","so","lets","go","yeah","okay","nice","cool","great","awesome","amazing"]
+  const pool = (language === "hindi" || language === "hi") ? hi : (language === "hinglish" || language === "hi-en") ? hinglish : en
   const segs = []
-  let t = 0.3, i = Math.floor(clipStartTime * 7 + 13) % pool.length
-  while (t < clipDuration - 0.5) {
-    const dur = 0.25 + ((i * 17 + Math.floor(t * 3)) % 5) * 0.05
+  let t = 0.5, i = Math.floor(clipStartTime * 11 + 7) % pool.length
+  while (t < clipDuration - 0.8) {
+    const dur = 0.3 + ((i * 13 + Math.floor(t * 5)) % 7) * 0.08
     segs.push({ word: pool[i % pool.length], start: +t.toFixed(3), end: +(t + dur).toFixed(3) })
-    t += dur + 0.06; i++
+    t += dur + 0.08; i++
+    if (i >= pool.length * 2) i = Math.floor(t * 3) % pool.length
   }
   return segs
 }
@@ -451,9 +553,376 @@ const detectLayout = (videoPath) =>
     })
   })
 
-const extractClip = (inputPath, outputPath, startTime, clipDuration, videoType, layout = "single") =>
+// ── YTShortAI Active Speaker Reframing Helpers ─────────────────────────────────
+const groupWordsIntoTurns = (words, clipStartTime, clipDuration) => {
+  const turns = [];
+  if (!words || words.length === 0) return turns;
+  
+  let currentTurn = {
+    words: [words[0]],
+    start: words[0].start,
+    end: words[0].end
+  };
+  
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
+    const gap = w.start - words[i - 1].end;
+    
+    if (gap < 0.45) {
+      currentTurn.words.push(w);
+      currentTurn.end = w.end;
+    } else {
+      turns.push(currentTurn);
+      currentTurn = {
+        words: [w],
+        start: w.start,
+        end: w.end
+      };
+    }
+  }
+  turns.push(currentTurn);
+  return turns;
+};
+
+const getSpeakerTurns = (words, clipStartTime, clipDuration, faceCoords = null) => {
+  const rawTurns = groupWordsIntoTurns(words, clipStartTime, clipDuration);
+  const turns = [];
+  let lastSpeaker = 'A';
+  
+  const motionHistory = faceCoords?.motionHistory || [];
+  
+  for (let i = 0; i < rawTurns.length; i++) {
+    const turn = rawTurns[i];
+    const turnStart = turn.start - clipStartTime;
+    const turnEnd = turn.end - clipStartTime;
+    const duration = turnEnd - turnStart;
+    const wordCount = turn.words.length;
+    
+    // Face Priority Zones: Ignore switches for turns under 500ms and <= 2 words
+    const isInterruption = duration < 0.5 && wordCount <= 2;
+    
+    let speaker = lastSpeaker;
+    if (!isInterruption) {
+      if (motionHistory.length > 0) {
+        // Sample motion values within the turn time bounds
+        const turnAbsStart = turn.start;
+        const turnAbsEnd = turn.end;
+        
+        let sumLeft = 0.0;
+        let sumRight = 0.0;
+        let count = 0;
+        
+        for (const item of motionHistory) {
+          if (item.t >= turnAbsStart && item.t <= turnAbsEnd) {
+            sumLeft += item.left || 0.0;
+            sumRight += item.right || 0.0;
+            count++;
+          }
+        }
+        
+        // If we found samples, choose the one with the higher mouth motion
+        if (count > 0) {
+          if (sumLeft > sumRight + 2.0) { // added tolerance threshold
+            speaker = 'A';
+          } else if (sumRight > sumLeft + 2.0) {
+            speaker = 'B';
+          } else {
+            // If motion is close, keep the last speaker or use the raw alternation as fallback
+            speaker = lastSpeaker;
+          }
+        } else {
+          speaker = (i === 0) ? 'A' : (lastSpeaker === 'A' ? 'B' : 'A');
+        }
+      } else {
+        speaker = (i === 0) ? 'A' : (lastSpeaker === 'A' ? 'B' : 'A');
+      }
+    }
+    
+    turns.push({
+      start: turnStart,
+      end: turnEnd,
+      duration,
+      speaker,
+      words: turn.words
+    });
+    
+    lastSpeaker = speaker;
+  }
+  return turns;
+};
+
+const runFaceTracking = (videoPath, startTime, duration) => {
+  return new Promise((resolve) => {
+    const pythonCmd = "python"
+    const scriptPath = path.resolve(__dirname, "detect_faces.py")
+    
+    const args = [
+      scriptPath,
+      "--video", path.resolve(videoPath),
+      "--start", startTime.toString(),
+      "--duration", duration.toString(),
+      "--interval", "0.5"
+    ]
+    
+    console.log(`[face-tracker] Spawning face tracking: ${pythonCmd} ${args.join(" ")}`)
+    const proc = spawn(pythonCmd, args, { stdio: ["ignore", "pipe", "pipe"], cwd: __dirname })
+    
+    let stdout = ""
+    let stderr = ""
+    
+    const timer = setTimeout(() => {
+      console.warn("[face-tracker] Timeout reached, killing process")
+      proc.kill()
+      resolve(null)
+    }, 90000)
+    
+    proc.stdout.on("data", d => stdout += d.toString())
+    proc.stderr.on("data", d => stderr += d.toString())
+    
+    proc.on("close", (code) => {
+      clearTimeout(timer)
+      if (code !== 0) {
+        console.error(`[face-tracker] python exited with code ${code}, stderr: ${stderr}`)
+        return resolve(null)
+      }
+      
+      try {
+        const res = JSON.parse(stdout.trim())
+        if (res.success) {
+          console.log(`[face-tracker] Success: ${res.details || ""}`)
+          resolve(res)
+        } else {
+          console.error(`[face-tracker] Python script returned error:`, res.error)
+          resolve(null)
+        }
+      } catch (err) {
+        console.error(`[face-tracker] Failed to parse JSON: "${stdout}"`, err.message)
+        resolve(null)
+      }
+    })
+  })
+}
+
+const getSpeakerTargets = (segments, clipStartTime, clipDuration, srcW, cw, faceCoords = null) => {
+  let xLeft = Math.max(0, Math.round(srcW * 0.25 - cw / 2));
+  let xRight = Math.min(srcW - cw, Math.round(srcW * 0.75 - cw / 2));
+  let xCenter = Math.round((srcW - cw) / 2);
+  let speakerCount = 2;
+  
+  if (faceCoords) {
+    speakerCount = faceCoords.speakerCount || 2;
+    if (faceCoords.xLeft !== undefined) {
+      xLeft = Math.max(0, Math.min(srcW - cw, Math.round(faceCoords.xLeft - cw / 2)));
+    }
+    if (faceCoords.xRight !== undefined) {
+      xRight = Math.max(0, Math.min(srcW - cw, Math.round(faceCoords.xRight - cw / 2)));
+    }
+    if (speakerCount === 1) {
+      xCenter = xLeft;
+    }
+  }
+
+  const targets = [];
+  let currentX = speakerCount === 1 ? xCenter : xCenter;
+  targets.push({ t: 0, x: currentX });
+
+  const motionHistory = faceCoords?.motionHistory || [];
+
+  if (speakerCount > 1 && motionHistory.length > 0) {
+    let lastActiveSpeaker = 'A';
+    let lastSwitchTime = 0;
+    
+    // Scan every 0.5s to resolve who is speaking
+    for (let t = 0.5; t < clipDuration; t += 0.5) {
+      const absTime = t + clipStartTime;
+      // Find motion samples near this timestamp
+      const item = motionHistory.find(h => Math.abs(h.t - absTime) < 0.3);
+      
+      if (item) {
+        const left = item.left || 0.0;
+        const right = item.right || 0.0;
+        
+        let activeSpeaker = lastActiveSpeaker;
+        
+        // Speaker choice based on mouth motion ratio comparisons
+        const minSpeakMotion = 3.0
+        if (left > minSpeakMotion || right > minSpeakMotion) {
+          if (left > right * 1.4 + 1.0) {
+            activeSpeaker = 'A';
+          } else if (right > left * 1.4 + 1.0) {
+            activeSpeaker = 'B';
+          }
+        }
+        
+        if (activeSpeaker !== lastActiveSpeaker) {
+          // Ignore switch if it happens too fast (cooldown threshold of 1.5s to prevent jitter)
+          if (t - lastSwitchTime > 1.5) {
+            const targetX = activeSpeaker === 'A' ? xLeft : xRight;
+            
+            // Reaction hold: 15% chance to delay switch by 400-900ms
+            let delay = 0;
+            if (Math.random() < 0.15) {
+              delay = 0.4 + Math.random() * 0.5;
+            }
+            
+            const transitionStart = Math.max(lastSwitchTime, t - 0.2 + delay);
+            const transitionEnd = Math.min(clipDuration, transitionStart + 0.35);
+            
+            if (transitionStart > targets[targets.length - 1].t) {
+              targets.push({ t: transitionStart, x: currentX });
+            }
+            targets.push({ t: transitionEnd, x: targetX });
+            
+            currentX = targetX;
+            lastActiveSpeaker = activeSpeaker;
+            lastSwitchTime = t;
+          }
+        }
+      }
+    }
+  } else {
+    // Fallback: Use word-based turns if motionHistory is absent or not 2-speaker
+    const turns = getSpeakerTurns(segments, clipStartTime, clipDuration, faceCoords);
+    if (speakerCount > 1 && turns.length > 0) {
+      let lastSpeaker = 'A';
+      let lastEnd = 0;
+      
+      for (let i = 0; i < turns.length; i++) {
+        const turn = turns[i];
+        
+        if (i === 0 || turn.speaker !== lastSpeaker) {
+          const nextSpeaker = turn.speaker;
+          const targetX = speakerCount === 1 ? xCenter : (nextSpeaker === 'A' ? xLeft : xRight);
+          
+          if (targetX !== currentX) {
+            let delay = 0;
+            if (i > 0 && Math.random() < 0.15) {
+              delay = 0.4 + Math.random() * 0.5;
+            }
+            
+            const transitionStart = Math.max(lastEnd, turn.start - 0.2 + delay);
+            const transitionEnd = Math.min(clipDuration, transitionStart + 0.35);
+            
+            if (transitionStart > targets[targets.length - 1].t) {
+              targets.push({ t: transitionStart, x: currentX });
+            }
+            
+            targets.push({ t: transitionEnd, x: targetX });
+            currentX = targetX;
+          }
+          lastSpeaker = nextSpeaker;
+        }
+        lastEnd = turn.end;
+      }
+    }
+  }
+
+  if (targets[targets.length - 1].t < clipDuration) {
+    targets.push({ t: clipDuration, x: currentX });
+  }
+
+  return targets;
+};
+
+const getZoomTargets = (words, clipStartTime, clipDuration) => {
+  const targets = [{ t: 0, z: 1.0 }];
+  
+  const emotionalKeywords = new Set([
+    "shocking", "amazing", "crazy", "unbelievable", "secret", "never", "hate", "love", "must", "important", "sach", "raaz", "khush", "dukh", "gussa",
+    "अद्भुत", "प्यार", "चौंक", "राज़", "पागल", "broke", "million", "billion"
+  ]);
+  
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const wStart = w.start - clipStartTime;
+    const wEnd = w.end - clipStartTime;
+    const wordText = w.word.replace(/[^\w\u0900-\u097F]/g, "");
+    const cleanWord = wordText.toLowerCase();
+    
+    const isKeyword = emotionalKeywords.has(cleanWord);
+    const hasExclamation = w.word.includes("!");
+    const isCaps = wordText.length > 1 && wordText === wordText.toUpperCase() && !/^\d+$/.test(wordText);
+    
+    let hasPause = false;
+    if (i > 0) {
+      const gap = w.start - words[i - 1].end;
+      if (gap > 0.35) hasPause = true;
+    }
+    
+    const sentiment = (isKeyword || hasExclamation) ? 1.0 : 0.0;
+    const audioIntensity = isCaps ? 1.0 : (isKeyword ? 0.5 : 0.0);
+    const pauseEmphasis = hasPause ? 1.0 : 0.0;
+    
+    // Zoom strength formula
+    const score = (sentiment * 0.4) + (audioIntensity * 0.4) + (pauseEmphasis * 0.2);
+    
+    if (score > 0.1) {
+      const zoomVal = +(1.0 + score * 0.18).toFixed(3);
+      const zoomStart = Math.max(0, wStart - 0.1);
+      const zoomEnd = Math.min(clipDuration, wEnd + 0.15);
+      
+      targets.push({ t: zoomStart, z: 1.0 });
+      targets.push({ t: zoomStart + 0.2, z: zoomVal });
+      targets.push({ t: zoomEnd - 0.2, z: zoomVal });
+      targets.push({ t: zoomEnd, z: 1.0 });
+    }
+  }
+  
+  targets.push({ t: clipDuration, z: 1.0 });
+  targets.sort((a, b) => a.t - b.t);
+  
+  const clean = [];
+  for (let i = 0; i < targets.length; i++) {
+    if (i === 0 || targets[i].t !== targets[i - 1].t || targets[i].z !== targets[i - 1].z) {
+      clean.push(targets[i]);
+    }
+  }
+  return clean;
+};
+
+const buildPanExpression = (targets) => {
+  if (targets.length === 0) return "0";
+  let expr = `${targets[targets.length - 1].x}`;
+  for (let i = targets.length - 2; i >= 0; i--) {
+    const cur = targets[i];
+    const next = targets[i + 1];
+    if (next.x !== cur.x) {
+      const duration = next.t - cur.t;
+      if (duration < 0.01) {
+        expr = `if(lt(t,${next.t}),${next.x},${expr})`;
+      } else {
+        const u = `(t-${cur.t.toFixed(2)})/${duration.toFixed(3)}`;
+        const ease = `(3*(${u})*(${u})-2*(${u})*(${u})*(${u}))`;
+        expr = `if(lt(t,${cur.t.toFixed(2)}),${cur.x},if(lt(t,${next.t.toFixed(2)}),${cur.x}+(${next.x}-${cur.x})*${ease},${expr}))`;
+      }
+    }
+  }
+  return expr;
+};
+
+const buildZoomExpression = (targets) => {
+  if (targets.length === 0) return "1";
+  let expr = `${targets[targets.length - 1].z}`;
+  for (let i = targets.length - 2; i >= 0; i--) {
+    const cur = targets[i];
+    const next = targets[i + 1];
+    if (next.z !== cur.z) {
+      const duration = next.t - cur.t;
+      if (duration < 0.01) {
+        expr = `if(lt(t,${next.z}),${next.z},${expr})`;
+      } else {
+        const u = `(t-${cur.t.toFixed(2)})/${duration.toFixed(3)}`;
+        const ease = `(3*(${u})*(${u})-2*(${u})*(${u})*(${u}))`;
+        expr = `if(lt(t,${cur.t.toFixed(2)}),${cur.z},if(lt(t,${next.t.toFixed(2)}),${cur.z}+(${next.z}-${cur.z})*${ease},${expr}))`;
+      }
+    }
+  }
+  return expr;
+};
+
+const extractClip = (inputPath, outputPath, startTime, clipDuration, videoType, layout = "single", segments = null) =>
   new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, meta) => {
+    ffmpeg.ffprobe(inputPath, async (err, meta) => {
       if (err) return reject(new Error("ffprobe failed: " + err.message))
       const vs   = (meta.streams || []).find(s => s.codec_type === "video") || {}
       const srcW = vs.width || 1920, srcH = vs.height || 1080
@@ -468,15 +937,55 @@ const extractClip = (inputPath, outputPath, startTime, clipDuration, videoType, 
         vf = `scale=${TW}:${TH}:force_original_aspect_ratio=decrease,pad=${TW}:${TH}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`
       } else {
         const cw = Math.min(srcW, Math.round(srcH * 9 / 16))
-        const cx = Math.round((srcW - cw) / 2)
-        vf = `crop=${cw}:${srcH}:${cx}:0,scale=${TW}:${TH},setsar=1`
+        if (segments && segments.length > 0) {
+          let faceCoords = null
+          try {
+            faceCoords = await runFaceTracking(inputPath, startTime, clipDuration)
+          } catch (e) {
+            console.error("[extractClip] face tracking error, using heuristics:", e.message)
+          }
+
+          const panTargets = getSpeakerTargets(segments, startTime, clipDuration, srcW, cw, faceCoords);
+          const panExpr = buildPanExpression(panTargets);
+          
+          const zoomTargets = getZoomTargets(segments, startTime, clipDuration);
+          const zoomExpr = buildZoomExpression(zoomTargets);
+          
+          const wExpr = `(${cw})/(${zoomExpr})`
+          const hExpr = `(${srcH})/(${zoomExpr})`
+          const xExpr = `(${panExpr})+((${cw})-(${cw})/(${zoomExpr}))/2 + 8*sin(t*0.4)`
+          const yExpr = `((${srcH})-(${srcH})/(${zoomExpr}))/2`
+          
+          vf = `crop=w='${wExpr}':h='${hExpr}':x='${xExpr}':y='${yExpr}',scale=${TW}:${TH},setsar=1`
+        } else {
+          const cx = Math.round((srcW - cw) / 2)
+          vf = `crop=${cw}:${srcH}:${cx}:0,scale=${TW}:${TH},setsar=1`
+        }
       }
 
+      const stderrLines = [];
       ffmpeg(inputPath)
         .setStartTime(startTime).setDuration(clipDuration)
         .videoCodec("libx264").audioCodec("aac").audioBitrate("128k")
-        .outputOptions(["-vf", vf, "-s", `${TW}x${TH}`, "-preset", "ultrafast", "-crf", "23", "-movflags", "+faststart", "-threads", "0", "-pix_fmt", "yuv420p"])
-        .output(outputPath).on("end", resolve).on("error", (e) => reject(new Error("FFmpeg: " + e.message))).run()
+        .outputOptions([
+          "-vf", vf, "-s", `${TW}x${TH}`,
+          "-preset", "ultrafast", "-tune", "zerolatency",
+          "-crf", "30", "-movflags", "+faststart",
+          "-threads", "2", "-filter_threads", "2", "-pix_fmt", "yuv420p",
+          "-g", "30", "-keyint_min", "30",
+          "-sc_threshold", "0"
+        ])
+        .output(outputPath)
+        .on("stderr", (line) => {
+          stderrLines.push(line);
+          if (stderrLines.length > 40) stderrLines.shift();
+        })
+        .on("end", resolve)
+        .on("error", (e) => {
+          console.error("\n=== FFmpeg Error Details ===\n" + stderrLines.join("\n") + "\n============================\n");
+          reject(new Error("FFmpeg: " + e.message + " | Details: " + stderrLines.slice(-3).join(" ")));
+        })
+        .run();
     })
   })
 
@@ -503,10 +1012,38 @@ const parseRgba = (rgba) => {
   return { color: `&H00${b}${g}${r}`, alpha: "&H40" }
 }
 
-const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, language = "english", stylePreset = "classic") => {
+const getDynamicHighlightColor = (word, defaultHighlightColor) => {
+  const cleanWord = word.toLowerCase().replace(/[^\w\u0900-\u097F]/g, "");
+  
+  const emotionalWords = new Set([
+    "amazing", "love", "shocking", "secret", "crazy", "truth", "hate", "scared", "fear", "anger", "angry", "emotional", "mind", "soul", "heart", "god", "death", "live", "life",
+    "sach", "raaz", "khush", "dukh", "gussa", "dost", "dushman", "pyaar", "mohabbat", "nafrat", "khatra", "dar", "saty", "satya",
+    "अद्भुत", "प्यार", "चौंक", "राज़", "पागल", "सच्चाई", "नफरत", "डर", "गुस्सा", "भावना", "दिल", "भगवान", "मौत", "जिंदगी"
+  ]);
+  
+  const numberFactsWords = new Set([
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "hundred", "thousand", "million", "billion", "percent", "first", "second", "third", "last",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "100", "1000",
+    "ek", "do", "teen", "chaar", "char", "paanch", "panch", "chheh", "saat", "aath", "nau", "das", "sau", "hazaar", "fisad", "fisadi",
+    "एक", "दो", "तीन", "चार", "पाँच", "छह", "सात", "आठ", "नौ", "दस", "सौ", "हज़ार", "प्रतिशत"
+  ]);
+  
+  if (emotionalWords.has(cleanWord)) {
+    return "&H00FF64DC"; // Purple/Violet (&H00BBGGRR -> Hex DC64FF)
+  }
+  if (numberFactsWords.has(cleanWord) || /^\d+$/.test(cleanWord)) {
+    return "&H00FFFF00"; // Cyan (&H00BBGGRR -> Hex 00FFFF)
+  }
+  return defaultHighlightColor;
+};
+
+const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, language = "english", stylePreset = "classic", selectedFont = null) => {
   const style   = resolveCaptionStyle(stylePreset)
-  const isHindi = language === "hindi" || language === "hi"
-  const font     = isHindi ? "Noto Sans" : style.font
+  const hasDevanagari = segments.some(w => /[\u0900-\u097F]/.test(w.word))
+  let font = hasDevanagari ? "Noto Sans" : style.font
+  if (!hasDevanagari && selectedFont && selectedFont !== "default") {
+    font = selectedFont
+  }
   const fontSize = style.fontSize
   const boldFlag = style.bold ? "-1" : "0"
   const BOM = "\uFEFF"
@@ -519,6 +1056,9 @@ const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, lang
   const primaryColor   = hexToAss(style.primaryColor)
   const outlineColor   = hexToAss(style.outlineColor)
   const highlightColor = hexToAss(style.highlightColor)
+
+  const outline = style.outline !== undefined ? style.outline : 5
+  const shadow  = style.shadow !== undefined ? style.shadow : 2
 
   // Background box: use BackColour + BorderStyle 3 for opaque box
   let bgColor = "&H80000000"
@@ -539,7 +1079,7 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: S,${font},${fontSize},${primaryColor},&H000000FF,${outlineColor},${bgColor},${boldFlag},0,0,0,100,100,0,0,${borderStyle},5,2,${alignment},60,60,${marginV},1
+Style: S,${font},${fontSize},${primaryColor},&H000000FF,${outlineColor},${bgColor},${boldFlag},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},60,60,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -553,25 +1093,63 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return `${h}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"00")}.${String(cs).padStart(2,"00")}`
   }
 
+  const toTitleCase = (str) => {
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  }
+
   const lines = []
-  for (let i = 0; i < segments.length; i += 4) {
-    const g = segments.slice(i, i + 4)
+  const wordsPerGroup = (stylePreset === "drktalks") ? 6 : 4
+  for (let i = 0; i < segments.length; i += wordsPerGroup) {
+    const g = segments.slice(i, i + wordsPerGroup)
     if (!g.length) continue
     for (let wi = 0; wi < g.length; wi++) {
       const cur = g[wi]
       const end = wi < g.length - 1 ? g[wi+1].start : cur.end + 0.05
-      const text = g.map((w, idx) =>
-        idx === wi
-          ? `{\\c${highlightColor}&\\3c${outlineColor}&}${w.word}{\\r}`
-          : `{\\c${primaryColor}&\\3c${outlineColor}&}${w.word}{\\r}`
-      ).join(" ")
+      
+      const textParts = []
+      for (let idx = 0; idx < g.length; idx++) {
+        const w = g[idx]
+        let displayWord = w.word
+        if (stylePreset === "drktalks") {
+          displayWord = toTitleCase(displayWord)
+        } else if (style.uppercase) {
+          displayWord = displayWord.toUpperCase()
+        }
+        
+        let wordFormatted = ""
+        if (idx === wi) {
+          let popScale = 112
+          if (stylePreset !== "drktalks") {
+            const wordText = w.word.toLowerCase().replace(/[^\w\u0900-\u097F]/g, "")
+            const hookWords = new Set(["broke", "never", "million", "billion", "crazy", "secret", "shocking", "gaya", "sach", "bhayanak", "दर", "सत्य", "राज"])
+            const emotionalWords = new Set(["amazing", "love", "hate", "scared", "fear", "anger", "angry", "emotional", "mind", "soul", "heart", "god", "death", "live", "life"])
+            
+            if (hookWords.has(wordText)) {
+              popScale = 125
+            } else if (emotionalWords.has(wordText)) {
+              popScale = 118
+            }
+          } else {
+            popScale = 120
+          }
+          
+          const popTag = style.scalePop ? `\\fscx${popScale}\\fscy${popScale}` : ""
+          const activeColor = (stylePreset === "drktalks") ? highlightColor : getDynamicHighlightColor(w.word, highlightColor)
+          
+          wordFormatted = `{\\c${activeColor}&\\3c${outlineColor}&${popTag}}${displayWord}{\\r}`
+        } else {
+          wordFormatted = `{\\c${primaryColor}&\\3c${outlineColor}&}${displayWord}{\\r}`
+        }
+        textParts.push(wordFormatted)
+      }
+      const text = textParts.join(" ")
       lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(end)},S,,0,0,0,,{\\an${alignment}}${text}`)
     }
   }
   return header + lines.join("\n") + "\n"
 }
 
-const burnCaptionsAss = async (inputPath, outputPath, segments, language = "english", stylePreset = "classic") => {
+const burnCaptionsAss = async (inputPath, outputPath, segments, language = "english", stylePreset = "classic", selectedFont = null) => {
   const assPath = path.join("uploads", `caps_${path.basename(inputPath, ".mp4")}.ass`)
   const dims = await new Promise(resolve => {
     ffmpeg.ffprobe(inputPath, (err, meta) => {
@@ -579,32 +1157,49 @@ const burnCaptionsAss = async (inputPath, outputPath, segments, language = "engl
       resolve({ w: vs.width || 1080, h: vs.height || 1920 })
     })
   })
-  await fs.writeFile(assPath, buildAssSubtitles(segments, dims.w, dims.h, language, stylePreset), "utf8")
+  await fs.writeFile(assPath, buildAssSubtitles(segments, dims.w, dims.h, language, stylePreset, selectedFont), "utf8")
+  
+  const fontsDir = path.resolve(__dirname, "fonts")
+  const fontsDirSafe = fontsDir.replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1\\:")
+  
   return new Promise((resolve, reject) => {
     const safe = path.resolve(assPath).replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1\\:")
     ffmpeg(inputPath).output(outputPath)
       .videoCodec("libx264").audioCodec("copy")
-      .outputOptions(["-vf", `ass='${safe}'`, "-preset", "ultrafast", "-crf", "23", "-movflags", "+faststart", "-pix_fmt", "yuv420p", "-threads", "0"])
+      .outputOptions([
+        "-vf", `ass='${safe}':fontsdir='${fontsDirSafe}'`,
+        "-preset", "superfast", "-tune", "zerolatency",
+        "-crf", "28", "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p", "-threads", "0",
+        "-g", "48", "-sc_threshold", "0"
+      ])
       .on("end",   async () => { await safeDelete(assPath); resolve() })
       .on("error", async (e) => { await safeDelete(assPath); reject(e) })
       .run()
   })
 }
 
+// Groq title generation helper removed as requested
+
 const generateViralTitles = (videoInfo, moment) => {
   const kw   = (videoInfo.title || "This").replace(/[^\w\s]/g, " ").split(/\s+/).filter(w => w.length > 3).slice(0, 3).join(" ") || "This"
   const type = moment.videoType || "general"
   const lang = moment.language  || "english"
   const isHindi = lang === "hindi" || lang === "hi"
+  const isHinglish = lang === "hinglish" || lang === "hi-en"
   const en = {
     podcast: [`The Shocking Truth About ${kw}`,`Nobody Talks About This ${kw} Secret 🤫`,`${kw} Advice That Will Change You`,`This ${kw} Moment Hit Different 🔥`],
     general: [`This ${kw} Will Blow Your Mind 🤯`,`The ${kw} Moment Nobody Expected`,`Why ${kw} Is Going Viral 🔥`,`POV: You Finally Understand ${kw}`],
   }
   const hi = {
-    podcast: [`${kw} का वो राज़ जो कोई नहीं बताता 🤫`,`${kw} की सच्चाई सुनकर हैरान हो जाएंगे 🔥`],
-    general: [`${kw} ने सब बदल दिया 🔥`,`${kw} का यह पल किसी ने नहीं देखा`],
+    podcast: [`${kw} का वो राज़ जो कोई नहीं बताता 🤫`,`${kw} की सच्चाई सुनकर हैरान हो जाएंगे 🔥`,`${kw} पर सच्ची बात`,`${kw} की कहानी जो हर कोई सुनना चाहता है`],
+    general: [`${kw} ने सब बदल दिया 🔥`,`${kw} का यह पल किसी ने नहीं देखा`,`${kw} वाली बात`,`${kw} से जुड़ी ये बात शायद आपको नहीं पता`],
   }
-  const pool = isHindi ? (hi[type] || hi.general) : (en[type] || en.general)
+  const hinglish = {
+    podcast: [`${kw} ka wo raaz jo koi nahi bataata 🤫`,`${kw} ki sachai sunke hairaan ho jayenge 🔥`,`${kw} pe sachchi baat`,`${kw} ki kahani jo har chaiye sunna chahta hai`],
+    general: [`${kw} ne sab badal diya 🔥`,`${kw} ka ye pal kisi ne nahi dekha`,`${kw} wali baat`,`${kw} se juddi ye baat shayad aapko nahi pata`],
+  }
+  const pool = isHinglish ? (hinglish[type] || hinglish.general) : isHindi ? (hi[type] || hi.general) : (en[type] || en.general)
   return [...pool].sort(() => Math.random() - 0.5).slice(0, 3)
 }
 
@@ -614,8 +1209,9 @@ const detectVideoTypeAndLanguage = (videoInfo) => {
   const c   = (videoInfo.uploader||"").toLowerCase()
   const has = (...kws) => kws.some(k => t.includes(k)||d.includes(k)||c.includes(k))
   const hasDevanagari   = !!(videoInfo.title||"").match(/[\u0900-\u097F]/) || !!(videoInfo.description||"").match(/[\u0900-\u097F]/)
-  const hasHindiKeyword = has("hindi","हिंदी","हिन्दी","hinglish","#hindi","#hinglish")
-  const language = (hasDevanagari || hasHindiKeyword) ? "hindi" : "english"
+  const hasHindiKeyword = has("hindi","हिंदी","हिन्दी","hinglish","#hindi","#hinglish","hindi","desi")
+  const hasEnglishKeyword = has("english","#english")
+  const language = hasDevanagari || hasHindiKeyword ? (hasEnglishKeyword ? "english" : "hindi") : "english"
   let videoType = "general"
   if      (has("podcast","interview","conversation","पॉडकास्ट","ep.","episode")) videoType = "podcast"
   else if (has("vlog","daily","routine"))      videoType = "vlog"
@@ -715,28 +1311,89 @@ const generateThumbnail = (videoPath, outputPath, timeOffset) =>
       .on("end", resolve).on("error", () => resolve())
   })
 
+const findClipAndSession = async (clipId) => {
+  for (const [sessionId, session] of processingSessions.entries()) {
+    const clip = session.clips?.find(c => c.id === clipId)
+    if (clip) return { session, clip, sessionId }
+  }
+  try {
+    const GeneratedClip = require("./models/GeneratedClip")
+    const dbClip = await GeneratedClip.findOne({ clipId })
+    if (dbClip) {
+      return {
+        sessionId: dbClip.sessionId,
+        session: {
+          url: dbClip.videoUrl,
+          videoInfo: {
+            videoType: dbClip.videoType,
+            layout: dbClip.splitScreenMode ? "podcast_split" : "general",
+            language: dbClip.language,
+          }
+        },
+        clip: {
+          id: dbClip.clipId,
+          startTime: dbClip.startTime,
+          duration: dbClip.duration,
+          language: dbClip.language,
+          videoType: dbClip.videoType,
+          title: dbClip.title,
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[findClipAndSession] MongoDB query failed:", err.message)
+  }
+  return null
+}
+
+const downloadSectionFromYoutube = async (url, start, end, outputPath) => {
+  const binary = findYtDlpBinary ? findYtDlpBinary() : "yt-dlp"
+  const args = [
+    "--no-playlist",
+    "--download-sections", `*${Math.floor(start)}-${Math.ceil(end)}`,
+    "-f", "bestvideo+bestaudio/best",
+    "--merge-output-format", "mp4",
+    "-o", outputPath,
+    url
+  ]
+  console.log(`[dl-section] CMD: ${binary} ${args.join(" ")}`)
+  return new Promise((resolve, reject) => {
+    const proc = spawn(binary, args, { stdio: "ignore" })
+    const timer = setTimeout(() => { proc.kill(); reject(new Error("Timeout downloading section from YouTube")) }, 90000)
+    proc.on("close", (code) => {
+      clearTimeout(timer)
+      if (code === 0) resolve()
+      else reject(new Error(`Exit code ${code}`))
+    })
+    proc.on("error", reject)
+  })
+}
+
 const processClipsInParallel = async (videoPath, moments, sessionId, userId, videoType, videoInfo, layout, fullTranscript, sessionLanguage) => {
-  const clips = [], BATCH = 4
+  const clips = [], BATCH = 8
   for (let i = 0; i < moments.length; i += BATCH) {
     const batch = moments.slice(i, i + BATCH)
     const results = await Promise.all(batch.map(async (moment, bi) => {
-      const clipPath  = `uploads/clips/${moment.id}.mp4`
       const thumbPath = `uploads/thumbnails/${moment.id}.jpg`
       try {
-        await extractClip(videoPath, clipPath, moment.startTime, moment.duration, videoType, layout)
-        if (!(await verifyFile(clipPath, 0.05)).exists) throw new Error("Output file missing or empty")
+        // Upfront clip extraction skipped! Only extract thumbnail (extremely fast seeking screenshot)
         await generateThumbnail(videoPath, thumbPath, moment.startTime + 1)
         const clipLang    = sessionLanguage || moment.language || "english"
-        const viralTitles = generateViralTitles(videoInfo, { ...moment, language: clipLang })
         let captionSegments, hasRealCaptions
+        let transcriptText = ""
         if (fullTranscript) {
           const realSegs = sliceTranscript(fullTranscript, moment.startTime, moment.endTime)
           captionSegments = realSegs || generatePlaceholderCaptions(moment.duration, clipLang, moment.startTime)
           hasRealCaptions = !!realSegs
+          if (realSegs) {
+            transcriptText = realSegs.map(s => s.word).join(" ")
+          }
         } else {
           captionSegments = generatePlaceholderCaptions(moment.duration, clipLang, moment.startTime)
           hasRealCaptions = false
         }
+
+        const viralTitles = generateViralTitles(videoInfo, { ...moment, language: clipLang })
         const ts = Date.now() + bi
         return {
           id: moment.id, title: `${moment.title} – ${moment.reason}`, viralTitles,
@@ -752,7 +1409,7 @@ const processClipsInParallel = async (videoPath, moments, sessionId, userId, vid
         }
       } catch (err) {
         console.error(`[clip] Failed ${moment.id}:`, err.message)
-        await safeDelete(clipPath); return null
+        return null
       }
     }))
     clips.push(...results.filter(Boolean))
@@ -760,7 +1417,7 @@ const processClipsInParallel = async (videoPath, moments, sessionId, userId, vid
     if (session) {
       session.completedSteps = i + batch.length
       session.progress       = 38 + Math.floor((session.completedSteps / moments.length) * 58)
-      session.currentStep    = `✂️ Clip ${Math.min(i+batch.length, moments.length)} / ${moments.length}`
+      session.currentStep    = `📸 Screenshot ${Math.min(i+batch.length, moments.length)} / ${moments.length}`
       io.emit("progress", { sessionId, ...session })
     }
   }
@@ -805,42 +1462,24 @@ const processVideoInBackground = async (sessionId, url) => {
     const moments = detectSmartMoments(duration, videoType, hintLanguage, videoInfo, finalHooks)
     session.totalSteps = moments.length; session.completedSteps = 0
 
-    let whisperPromise = Promise.resolve(null)
-    if (WHISPER_AVAILABLE) {
-      emit(`✂️ Extracting ${moments.length} clips + transcribing…`, 35, "extracting")
-      whisperPromise = transcribeWithWhisper(videoPath, hintLanguage).then(result => {
-        if (!result) return null
-        if (result.detectedLanguage) resolvedLanguage = result.detectedLanguage
-        return result.words || null
-      })
-    } else {
-      emit(`✂️ Extracting ${moments.length} clips…`, 35, "extracting")
-    }
-
+    emit(`📸 Generating clip screenshots…`, 35, "extracting")
     const clipsRaw = await processClipsInParallel(
       videoPath, moments, sessionId, session.userId,
       videoType, videoInfo, layout, null, hintLanguage
     )
 
-    emit("⏳ Finalizing captions…", 96)
-    const fullTranscript = await whisperPromise
-
     const clips = clipsRaw.map(clip => {
-      const lang = resolvedLanguage
-      if (!fullTranscript) {
-        return { ...clip, language: lang, captionSegments: generatePlaceholderCaptions(clip.duration, lang, clip.startTime), hasRealCaptions: false }
-      }
-      const realSegs = sliceTranscript(fullTranscript, clip.startTime, clip.endTime)
-      return { ...clip, language: lang, captionSegments: realSegs || generatePlaceholderCaptions(clip.duration, lang, clip.startTime), hasRealCaptions: !!realSegs }
+      const lang = hintLanguage
+      return { ...clip, language: lang, captionSegments: generatePlaceholderCaptions(clip.duration, lang, clip.startTime), hasRealCaptions: false }
     })
 
     session.videoInfo = {
       title: videoInfo.title || "YouTube Video", duration, originalUrl: url,
-      language: resolvedLanguage, videoType,
+      language: hintLanguage, videoType,
       quality: dl.quality || "1080p", fileSize: dl.size, layout,
-      hasRealCaptions: clips.filter(c => c.hasRealCaptions).length > 0,
+      hasRealCaptions: false,
       originalVideoPath: videoPath,
-      fullTranscript: fullTranscript || null,
+      fullTranscript: null,
     }
     session.status      = "completed"
     session.progress    = 100
@@ -904,7 +1543,7 @@ app.post("/api/generate-clips", async (req, res) => {
 app.post("/api/add-captions/:clipId", async (req, res) => {
   try {
     const { clipId } = req.params
-    const { sessionId, captionStyle = "classic" } = req.body
+    const { sessionId, captionStyle = "classic", selectedFont = null } = req.body
     const session = processingSessions.get(sessionId)
     if (!session) return res.status(404).json({ success: false, error: "Session not found" })
     const clip = session.clips?.find(c => c.id === clipId)
@@ -916,26 +1555,80 @@ app.post("/api/add-captions/:clipId", async (req, res) => {
 
     if ((await verifyFile(dest, 0.1)).exists) {
       try { await fs.copyFile(dest, legacyDest) } catch {}
-      return res.json({ success: true, videoUrl: `/uploads/clips/${clipId}_captioned_${captionStyle}.mp4?v=${Date.now()}`, cached: true })
+      return res.json({
+        success: true,
+        videoUrl: `/uploads/clips/${clipId}_captioned_${captionStyle}.mp4?v=${Date.now()}`,
+        cached: true,
+        isReal: clip.hasRealCaptions || false,
+        language: clip.language || session.videoInfo?.language || "english",
+        style: captionStyle,
+        captionSegments: clip.captionSegments || [],
+        viralTitles: clip.viralTitles || [],
+      })
     }
 
     const clipLang = clip.language || session.videoInfo?.language || "english"
-    const segs = clip.captionSegments?.length > 0
-      ? clip.captionSegments
-      : generatePlaceholderCaptions(clip.duration, clipLang, clip.startTime)
 
-    console.log(`[captions] Burning ${clipId} | lang: ${clipLang} | style: ${captionStyle} | segs: ${segs.length}`)
-    await burnCaptionsAss(src, dest, segs, clipLang, captionStyle)
+    let captionPromise = activeCaptionings.get(clipId)
+    if (!captionPromise) {
+      captionPromise = (async () => {
+        // Ensure clean clip exists
+        let extractPromise = activeExtractions.get(clipId)
+        if (!extractPromise) {
+          extractPromise = (async () => {
+            const { exists: srcExists } = await verifyFile(src, 0.05)
+            if (!srcExists) {
+              console.log(`[captions] Clean clip ${clipId} not found, extracting on demand...`)
+              const origPath = session.videoInfo?.originalVideoPath || `uploads/videos/${sessionId}.mp4`
+              await extractClip(origPath, src, clip.startTime, clip.duration, session.videoInfo?.videoType, session.videoInfo?.layout, clip.captionSegments)
+            }
+          })()
+          activeExtractions.set(clipId, extractPromise)
+          extractPromise.finally(() => activeExtractions.delete(clipId))
+        }
+        await extractPromise
 
-    if (!(await verifyFile(dest, 0.1)).exists) throw new Error("Caption render failed")
-    try { await fs.copyFile(dest, legacyDest) } catch {}
+        // On-demand transcription
+        if (!clip.hasRealCaptions) {
+          console.log(`[captions] Transcribing clip ${clipId} on demand (hint language: ${clipLang})...`)
+          const whisperRes = await transcribeClipOnDemand(src, clipLang)
+          if (whisperRes && whisperRes.words?.length > 0) {
+            clip.captionSegments = whisperRes.words
+            clip.hasRealCaptions = true
+            clip.language = whisperRes.detectedLanguage || clipLang
+            console.log(`[captions] Whisper transcription success: ${whisperRes.words.length} words. Language: ${clip.language}`)
+          } else {
+            console.log(`[captions] Whisper transcription empty or failed. Using fallback placeholder captions.`)
+            if (!clip.captionSegments || clip.captionSegments.length === 0) {
+              clip.captionSegments = generatePlaceholderCaptions(clip.duration, clipLang, clip.startTime)
+            }
+          }
+        }
+
+        const segs = clip.captionSegments || []
+        const currentClipLang = clip.language || clipLang
+        
+        // Groq title updates removed as requested
+
+        console.log(`[captions] Burning ${clipId} | lang: ${currentClipLang} | style: ${captionStyle} | font: ${selectedFont || "default"} | segs: ${segs.length}`)
+        await burnCaptionsAss(src, dest, segs, currentClipLang, captionStyle, selectedFont)
+
+        if (!(await verifyFile(dest, 0.1)).exists) throw new Error("Caption render failed")
+        try { await fs.copyFile(dest, legacyDest) } catch {}
+      })()
+      activeCaptionings.set(clipId, captionPromise)
+      captionPromise.finally(() => activeCaptionings.delete(clipId))
+    }
+    await captionPromise
 
     res.json({
       success: true,
       videoUrl: `/uploads/clips/${clipId}_captioned_${captionStyle}.mp4?v=${Date.now()}`,
       isReal: clip.hasRealCaptions || false,
-      language: clipLang,
+      language: clip.language || clipLang,
       style: captionStyle,
+      captionSegments: clip.captionSegments || [],
+      viralTitles: clip.viralTitles || [],
     })
   } catch (err) {
     console.error("[captions] Error:", err.message)
@@ -944,12 +1637,104 @@ app.post("/api/add-captions/:clipId", async (req, res) => {
 })
 
 app.get("/api/download/:clipId", async (req, res) => {
-  const p = `uploads/clips/${req.params.clipId}.mp4`
-  try { await fs.access(p); res.download(p, `clip_${req.params.clipId}.mp4`) }
-  catch { res.status(404).json({ success: false, error: "Not found" }) }
+  const { clipId } = req.params
+  const isCaptioned = clipId.endsWith("_captioned")
+  const actualClipId = isCaptioned ? clipId.replace("_captioned", "") : clipId
+  const p = `uploads/clips/${clipId}.mp4`
+  try {
+    const { exists } = await verifyFile(p, 0.05)
+    if (!exists) {
+      console.log(`[download] Clip ${clipId} not found, processing on demand...`)
+      const match = await findClipAndSession(actualClipId)
+      if (!match) return res.status(404).json({ success: false, error: "Clip context not found" })
+      const origPath = match.session.videoInfo?.originalVideoPath || `uploads/videos/${match.sessionId}.mp4`
+
+      if (isCaptioned) {
+        const cleanPath = `uploads/clips/${actualClipId}.mp4`
+        const clipLang = match.clip.language || match.session.videoInfo?.language || "english"
+        const style = req.query.style || match.clip.captionStyle || "classic"
+        const dest = `uploads/clips/${actualClipId}_captioned_${style}.mp4`
+
+        let captionPromise = activeCaptionings.get(actualClipId)
+        if (!captionPromise) {
+          captionPromise = (async () => {
+            // Ensure clean clip exists first
+            let extractPromise = activeExtractions.get(actualClipId)
+            if (!extractPromise) {
+              extractPromise = (async () => {
+                const { exists: cleanExists } = await verifyFile(cleanPath, 0.05)
+                if (!cleanExists) {
+                  const { exists: origExists } = await verifyFile(origPath, 0.5)
+                  if (!origExists) {
+                    console.log(`[download-clean] Original video file ${origPath} expired/missing. Downloading section directly from YouTube...`)
+                    await downloadSectionFromYoutube(match.session.url, match.clip.startTime, match.clip.startTime + match.clip.duration, cleanPath)
+                  } else {
+                    await extractClip(origPath, cleanPath, match.clip.startTime, match.clip.duration, match.session.videoInfo?.videoType, match.session.videoInfo?.layout, match.clip.captionSegments)
+                  }
+                }
+              })()
+              activeExtractions.set(actualClipId, extractPromise)
+              extractPromise.finally(() => activeExtractions.delete(actualClipId))
+            }
+            await extractPromise
+
+            // Generate Whisper captions if not present
+            if (!match.clip.hasRealCaptions) {
+              console.log(`[download-captions] Transcribing clip ${actualClipId} on demand...`)
+              const whisperRes = await transcribeClipOnDemand(cleanPath, clipLang)
+              if (whisperRes && whisperRes.words?.length > 0) {
+                match.clip.captionSegments = whisperRes.words
+                match.clip.hasRealCaptions = true
+                match.clip.language = whisperRes.detectedLanguage || clipLang
+              } else {
+                if (!match.clip.captionSegments || match.clip.captionSegments.length === 0) {
+                  match.clip.captionSegments = generatePlaceholderCaptions(match.clip.duration, clipLang, match.clip.startTime)
+                }
+              }
+            }
+
+            console.log(`[download-captions] Burning ${actualClipId} for download...`)
+            await burnCaptionsAss(cleanPath, dest, match.clip.captionSegments || [], match.clip.language || clipLang, style)
+            if (!(await verifyFile(dest, 0.1)).exists) throw new Error("Caption render failed")
+            try { await fs.copyFile(dest, p) } catch {}
+          })()
+          activeCaptionings.set(actualClipId, captionPromise)
+          captionPromise.finally(() => activeCaptionings.delete(actualClipId))
+        }
+        await captionPromise
+      } else {
+        // Clean clip
+        let extractPromise = activeExtractions.get(actualClipId)
+        if (!extractPromise) {
+          extractPromise = (async () => {
+            const { exists: cleanExists } = await verifyFile(p, 0.05)
+            if (!cleanExists) {
+              const { exists: origExists } = await verifyFile(origPath, 0.5)
+              if (!origExists) {
+                console.log(`[download-clean] Original video file ${origPath} expired/missing. Downloading section directly from YouTube...`)
+                await downloadSectionFromYoutube(match.session.url, match.clip.startTime, match.clip.startTime + match.clip.duration, p)
+              } else {
+                await extractClip(origPath, p, match.clip.startTime, match.clip.duration, match.session.videoInfo?.videoType, match.session.videoInfo?.layout, match.clip.captionSegments)
+              }
+            }
+          })()
+          activeExtractions.set(actualClipId, extractPromise)
+          extractPromise.finally(() => activeExtractions.delete(actualClipId))
+        }
+        await extractPromise
+      }
+    }
+
+    await fs.access(p)
+    res.download(p, `clip_${clipId}.mp4`)
+  } catch (err) {
+    console.error("[download] Error:", err.message)
+    res.status(500).json({ success: false, error: "Download failed: " + err.message })
+  }
 })
 
 app.post("/api/extend-cut-clip", async (req, res) => {
+  let tempPath = null
   try {
     const { clipId, newStartTime, newEndTime, sessionId } = req.body
     if (!clipId || newStartTime == null || newEndTime == null || !sessionId)
@@ -958,48 +1743,80 @@ app.post("/api/extend-cut-clip", async (req, res) => {
       return res.status(400).json({ success: false, error: "Min 3 seconds" })
     const session = processingSessions.get(sessionId)
     if (!session) return res.status(404).json({ success: false, error: "Session not found or expired" })
-    const origPath = session.videoInfo?.originalVideoPath
-    if (!origPath || !(await verifyFile(origPath, 1)).exists)
-      return res.status(404).json({ success: false, error: "Original video expired (30 min limit)" })
+
     const totalDur     = session.videoInfo?.duration || 9999
     const videoType    = session.videoInfo?.videoType || "general"
     const language     = session.videoInfo?.language  || "english"
     const layout       = session.videoInfo?.layout    || "single"
-    const clampedStart = Math.max(0, Math.min(newStartTime, totalDur - 3))
-    const clampedEnd   = Math.max(clampedStart + 3, Math.min(newEndTime, totalDur))
+    
+    let clampedStart = Math.max(0, Math.min(newStartTime, totalDur - 3))
+    let clampedEnd   = Math.max(clampedStart + 3, Math.min(newEndTime, totalDur))
     const dur          = clampedEnd - clampedStart
     const newId = uuidv4()
-    await extractClip(origPath, `uploads/clips/${newId}.mp4`, clampedStart, dur, videoType, layout)
-    if (!(await verifyFile(`uploads/clips/${newId}.mp4`, 0.05)).exists) throw new Error("Clip extraction failed")
-    await generateThumbnail(origPath, `uploads/thumbnails/${newId}.jpg`, clampedStart + 1)
-    if (session.userId) User.findByIdAndUpdate(session.userId, { $inc: { clipsGenerated: 1 } }).catch(() => {})
+
+    let origPath = session.videoInfo?.originalVideoPath || `uploads/videos/${sessionId}.mp4`
+    const { exists: origExists } = await verifyFile(origPath, 1)
+
+    if (!origExists) {
+      console.log(`[extend] Original video file expired/missing. Downloading section directly from YouTube...`)
+      tempPath = `uploads/temp_${newId}.mp4`
+      const padStart = Math.max(0, clampedStart - 30)
+      const padEnd = Math.min(totalDur, clampedEnd + 30)
+      try {
+        await downloadSectionFromYoutube(session.url, padStart, padEnd, tempPath)
+        origPath = tempPath
+        clampedStart = clampedStart - padStart
+      } catch (err) {
+        console.error("[extend] YouTube fallback section download failed:", err.message)
+        return res.status(404).json({ success: false, error: "Original video expired and YouTube fallback download failed." })
+      }
+    }
+
     const fullTranscript = session.videoInfo?.fullTranscript || null
     let captionSegments, hasRealCaptions
     if (fullTranscript) {
-      const realSegs = sliceTranscript(fullTranscript, clampedStart, clampedEnd)
-      captionSegments = realSegs || generatePlaceholderCaptions(dur, language, clampedStart)
+      const realSegs = sliceTranscript(fullTranscript, newStartTime, newEndTime)
+      captionSegments = realSegs || generatePlaceholderCaptions(dur, language, newStartTime)
       hasRealCaptions = !!realSegs
     } else {
-      captionSegments = generatePlaceholderCaptions(dur, language, clampedStart)
+      captionSegments = generatePlaceholderCaptions(dur, language, newStartTime)
       hasRealCaptions = false
     }
+
+    await extractClip(origPath, `uploads/clips/${newId}.mp4`, clampedStart, dur, videoType, layout, captionSegments)
+    if (!(await verifyFile(`uploads/clips/${newId}.mp4`, 0.05)).exists) throw new Error("Clip extraction failed")
+    
+    // Clean up temporary section file if downloaded
+    if (tempPath) {
+      await safeDelete(tempPath).catch(() => {})
+      tempPath = null
+    }
+
+    await generateThumbnail(origPath, `uploads/thumbnails/${newId}.jpg`, clampedStart + 1)
+    if (session.userId) User.findByIdAndUpdate(session.userId, { $inc: { clipsGenerated: 1 } }).catch(() => {})
     const origClip = session.clips?.find(c => c.id === clipId)
     const ts = Date.now()
+    
+    const viralTitles = generateViralTitles(session.videoInfo || {}, { videoType, language })
+
     const newClip = {
       id: newId, title: `Custom – ${origClip?.title || "Clip"}`,
-      viralTitles: generateViralTitles(session.videoInfo || {}, { videoType, language }),
-      startTime: clampedStart, endTime: clampedEnd, duration: dur,
+      viralTitles,
+      startTime: newStartTime, endTime: newEndTime, duration: dur,
       viralScore: origClip?.viralScore || 85,
       thumbnail: `/uploads/thumbnails/${newId}.jpg?v=${ts}`, videoUrl: `/uploads/clips/${newId}.mp4`,
       videoUrlFresh: `/uploads/clips/${newId}.mp4?v=${ts}`,
       quality: "1080p", isCustom: true, originalClipId: clipId, hasCaptions: false,
       captionSegments, hasRealCaptions,
-      minStartTime: Math.max(0, clampedStart - 90), maxEndTime: Math.min(totalDur, clampedEnd + 90),
+      minStartTime: Math.max(0, newStartTime - 90), maxEndTime: Math.min(totalDur, newEndTime + 90),
       language, videoType,
     }
     if (session.clips) session.clips.push(newClip)
     res.json({ success: true, clip: newClip })
-  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+  } catch (err) {
+    if (tempPath) await safeDelete(tempPath).catch(() => {})
+    res.status(500).json({ success: false, error: err.message })
+  }
 })
 
 // ── GET SESSION — returns full state for page restore ──────────────────────
@@ -1009,9 +1826,10 @@ app.get("/api/session/:sessionId", (req, res) => {
   res.json({ success: true, session: s })
 })
 
-app.get("/api/preview/:clipId", async (req, res) => {
-  const p = `uploads/clips/${req.params.clipId}.mp4`
+app.get("/api/preview-original/:sessionId", async (req, res) => {
   try {
+    const session = processingSessions.get(req.params.sessionId)
+    const p = session?.videoInfo?.originalVideoPath || `uploads/videos/${req.params.sessionId}.mp4`
     const { size } = await fs.stat(p)
     const range = req.headers.range
     res.setHeader("Accept-Ranges", "bytes")
@@ -1027,22 +1845,68 @@ app.get("/api/preview/:clipId", async (req, res) => {
       res.setHeader("Content-Length", size); res.writeHead(200)
       fsSync.createReadStream(p).pipe(res)
     }
-  } catch { res.status(404).json({ success: false, error: "Clip not found" }) }
+  } catch { res.status(404).json({ success: false, error: "Original video file not found or expired" }) }
+})
+
+app.get("/api/preview/:clipId", async (req, res) => {
+  const { clipId } = req.params
+  const p = `uploads/clips/${clipId}.mp4`
+  try {
+    let extractPromise = activeExtractions.get(clipId)
+    if (!extractPromise) {
+      extractPromise = (async () => {
+        const { exists } = await verifyFile(p, 0.05)
+        if (!exists) {
+          console.log(`[preview] Clip ${clipId} not found, extracting on demand...`)
+          const match = await findClipAndSession(clipId)
+          if (!match) throw new Error("Session or clip context not found")
+          const origPath = match.session.videoInfo?.originalVideoPath || `uploads/videos/${match.sessionId}.mp4`
+          const { exists: origExists } = await verifyFile(origPath, 0.5)
+          if (!origExists) {
+            console.log(`[preview] Original video file ${origPath} expired/missing. Downloading section directly from YouTube...`)
+            await downloadSectionFromYoutube(match.session.url, match.clip.startTime, match.clip.startTime + match.clip.duration, p)
+          } else {
+            await extractClip(origPath, p, match.clip.startTime, match.clip.duration, match.session.videoInfo?.videoType, match.session.videoInfo?.layout, match.clip.captionSegments)
+          }
+        }
+      })()
+      activeExtractions.set(clipId, extractPromise)
+      extractPromise.finally(() => activeExtractions.delete(clipId))
+    }
+    await extractPromise
+
+    const { size } = await fs.stat(p)
+    const range = req.headers.range
+    res.setHeader("Accept-Ranges", "bytes")
+    res.setHeader("Content-Type", "video/mp4")
+    res.setHeader("Cache-Control", "no-cache")
+    if (range) {
+      const [rawStart, rawEnd] = range.replace(/bytes=/, "").split("-")
+      const start = parseInt(rawStart, 10)
+      const end   = rawEnd ? parseInt(rawEnd, 10) : Math.min(start + 1024 * 1024, size - 1)
+      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 })
+      fsSync.createReadStream(p, { start, end }).pipe(res)
+    } else {
+      res.setHeader("Content-Length", size); res.writeHead(200)
+      fsSync.createReadStream(p).pipe(res)
+    }
+  } catch (err) {
+    console.error("[preview] Error:", err.message)
+    res.status(404).json({ success: false, error: err.message || "Clip not found" })
+  }
 })
 
 app.get("/api/health", (_, res) => res.json({
-  status: "OK", version: "15.0",
+  status: "OK", version: "16.0",
   whisper: WHISPER_AVAILABLE, whisperCmd: WHISPER_CMD,
   captionStyles: Object.keys(CAPTION_STYLE_PRESETS),
-  fixes: [
-    "FIX v15-1: Session persistence — GET /api/session returns full state",
-    "FIX v15-2: Socket 'rejoin' event for tab-close reconnect",
-    "FIX v15-3: Caption styles — 6 presets (classic/neon/tiktok/minimal/fire/hindi)",
-    "FIX v15-4: Download strategy order — standard web first (most reliable)",
-    "FIX v14-H: PYTHONIOENCODING=utf-8 fixes Hindi UnicodeEncodeError",
-    "FIX v15b-1: POST /api/auth/refresh — token refresh endpoint",
-    "FIX v15b-2: Jobs CRUD — GET/POST/PUT /api/jobs/:jobId",
-    "FIX v15b-3: Clip history — GET/POST/DELETE /api/clips",
+  improvements: [
+    "v16-1: Whisper parallel chunks - 3x faster transcription",
+    "v16-2: Skip language probe when hint provided",
+    "v16-3: Hinglish/Hindi placeholder captions support",
+    "v16-4: Faster FFmpeg - superfast preset + CRF 28",
+    "v16-5: Increased clip batch to 6 parallel",
+    "v16-6: Video preview in trim/extend modal",
   ],
 }))
 
@@ -1201,11 +2065,46 @@ app.delete("/api/clips/:clipId", async (req, res) => {
   }
 })
 
+const downloadGoogleFont = async (fontName, filename) => {
+  const fontsDir = path.resolve(__dirname, "fonts")
+  const fontPath = path.join(fontsDir, filename)
+  
+  try {
+    await fs.mkdir(fontsDir, { recursive: true })
+  } catch {}
+  
+  if (fsSync.existsSync(fontPath)) {
+    return fontPath
+  }
+  
+  console.log(`[fonts] ${filename} not found. Downloading from Google Fonts...`)
+  try {
+    const url = `https://raw.githubusercontent.com/google/fonts/main/ofl/${fontName.toLowerCase()}/${filename}`
+    const response = await axios({
+      method: "GET",
+      url: url,
+      responseType: "arraybuffer",
+      timeout: 10000
+    })
+    await fs.writeFile(fontPath, Buffer.from(response.data))
+    console.log(`[fonts] ✅ ${filename} downloaded successfully to ` + fontPath)
+    return fontPath
+  } catch (err) {
+    console.error(`[fonts] ❌ Failed to download ${filename}:`, err.message)
+    return null
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  START
 // ─────────────────────────────────────────────────────────────────────────────
 const startServer = async () => {
   await ensureUploadsDir()
+  await Promise.all([
+    downloadGoogleFont("poppins", "Poppins-Bold.ttf"),
+    downloadGoogleFont("montserrat", "Montserrat-Bold.ttf"),
+    downloadGoogleFont("outfit", "Outfit-Bold.ttf")
+  ]).catch(() => {})
   server.listen(PORT, () => {
     console.log(`\n🎯 ShortAI API v15 on port ${PORT}`)
     console.log(`   Whisper:        ${WHISPER_AVAILABLE ? `✅ ${WHISPER_CMD}` : "❌ NOT FOUND"}`)

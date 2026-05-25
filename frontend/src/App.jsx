@@ -89,24 +89,22 @@ function App() {
   return (
     <Router>
       <div className="App">
-        <Navbar user={user} onLogout={handleLogout} />
-
         <Routes>
           <Route
             path="/"
-            element={user ? <Navigate to="/dashboard" /> : <LandingPage />}
+            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><LandingPage /></>}
           />
           <Route
             path="/login"
-            element={user ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />}
+            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><Login onLogin={handleLogin} /></>}
           />
           <Route
             path="/register"
-            element={user ? <Navigate to="/dashboard" /> : <Register onLogin={handleLogin} />}
+            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><Register onLogin={handleLogin} /></>}
           />
           <Route
             path="/dashboard"
-            element={user ? <Dashboard user={user} /> : <Navigate to="/login" />}
+            element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
           />
         </Routes>
       </div>
