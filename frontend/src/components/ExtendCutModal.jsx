@@ -1,24 +1,23 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Scissors, X } from "lucide-react"
+import { Scissors, X, Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight } from "lucide-react"
 
 const ExtendCutModal = ({ clip, onClose, onSave, formatDuration, videoUrl }) => {
   const [startTime, setStartTime] = useState(Math.round(clip.startTime))
-  const [endTime,   setEndTime]   = useState(Math.round(clip.endTime))
-  const [dragging,  setDragging]  = useState(null)
-  const [saving,    setSaving]    = useState(false)
-  const [error,     setError]     = useState("")
-  const [previewTime, setPreviewTime] = useState(Math.round(clip.startTime) + 1)
+  const [endTime, setEndTime] = useState(Math.round(clip.endTime))
+  const [dragging, setDragging] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
   const [isPlaying, setIsPlaying] = useState(false)
   const trackRef = useRef(null)
   const videoRef = useRef(null)
 
-  const minStart  = Math.floor(clip.minStartTime  ?? Math.max(0, clip.startTime - 60))
-  const maxEnd    = Math.ceil( clip.maxEndTime    ?? clip.endTime + 60)
+  const minStart = Math.floor(clip.minStartTime ?? Math.max(0, clip.startTime - 60))
+  const maxEnd = Math.ceil(clip.maxEndTime ?? clip.endTime + 60)
   const totalSpan = maxEnd - minStart
-  const clipDur   = endTime - startTime
-  const origDur   = Math.round((clip.originalEnd ?? clip.endTime) - (clip.originalStart ?? clip.startTime))
+  const clipDur = endTime - startTime
+  const origDur = Math.round((clip.originalEnd ?? clip.endTime) - (clip.originalStart ?? clip.startTime))
 
   const toPercent = (t) => ((t - minStart) / totalSpan) * 100
 
@@ -35,11 +34,8 @@ const ExtendCutModal = ({ clip, onClose, onSave, formatDuration, videoUrl }) => 
     if (!dragging) return
     const t = getTimeFromEvent(e)
     if (t === null) return
-    if (dragging === "start") {
-      setStartTime(Math.max(minStart, Math.min(Math.round(t), endTime - 3)))
-    } else {
-      setEndTime(Math.max(startTime + 3, Math.min(Math.round(t), maxEnd)))
-    }
+    if (dragging === "start") setStartTime(Math.max(minStart, Math.min(Math.round(t), endTime - 3)))
+    else setEndTime(Math.max(startTime + 3, Math.min(Math.round(t), maxEnd)))
   }, [dragging, getTimeFromEvent, minStart, maxEnd, startTime, endTime])
 
   const onUp = useCallback(() => setDragging(null), [])
@@ -47,392 +43,256 @@ const ExtendCutModal = ({ clip, onClose, onSave, formatDuration, videoUrl }) => 
   useEffect(() => {
     if (!dragging) return
     window.addEventListener("mousemove", onMove)
-    window.addEventListener("mouseup",   onUp)
+    window.addEventListener("mouseup", onUp)
     window.addEventListener("touchmove", onMove, { passive: true })
-    window.addEventListener("touchend",  onUp)
+    window.addEventListener("touchend", onUp)
     return () => {
       window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("mouseup",   onUp)
+      window.removeEventListener("mouseup", onUp)
       window.removeEventListener("touchmove", onMove)
-      window.removeEventListener("touchend",  onUp)
+      window.removeEventListener("touchend", onUp)
     }
   }, [dragging, onMove, onUp])
 
   const nudge = (handle, delta) => {
-    if (handle === "start") {
-      setStartTime(t => Math.max(minStart, Math.min(t + delta, endTime - 3)))
-    } else {
-      setEndTime(t => Math.max(startTime + 3, Math.min(t + delta, maxEnd)))
-    }
+    if (handle === "start") setStartTime(t => Math.max(minStart, Math.min(t + delta, endTime - 3)))
+    else setEndTime(t => Math.max(startTime + 3, Math.min(t + delta, maxEnd)))
   }
 
   const handleSave = async () => {
-    if (clipDur < 3)   return setError("Clip must be at least 3 seconds")
+    if (clipDur < 3) return setError("Clip must be at least 3 seconds")
     if (clipDur > 180) return setError("Clip cannot exceed 3 minutes")
     setError("")
     setSaving(true)
-    try {
-      await onSave(clip, startTime, endTime)
-    } catch (e) {
-      setError(e?.message || "Failed to create clip")
-      setSaving(false)
-    }
+    try { await onSave(clip, startTime, endTime) }
+    catch (e) { setError(e?.message || "Failed to create clip"); setSaving(false) }
   }
 
   const startPct = toPercent(startTime)
-  const endPct   = toPercent(endTime)
+  const endPct = toPercent(endTime)
   const origStartPct = toPercent(clip.originalStart ?? clip.startTime)
-  const origEndPct   = toPercent(clip.originalEnd ?? clip.endTime)
-
+  const origEndPct = toPercent(clip.originalEnd ?? clip.endTime)
   const durChange = clipDur - origDur
-  const durChangeColor = durChange > 0 ? "#306D29" : durChange < 0 ? "#b91c1c" : "rgba(13, 83, 14, 0.55)"
 
   return (
-    <div style={S.overlay} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={S.modal}>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-[560px] max-h-[95vh] flex flex-col bg-[#111113] border border-white/[0.09] rounded-2xl shadow-2xl overflow-hidden font-sans">
 
-        {/* header */}
-        <div style={S.header}>
-          <div style={S.headerLeft}>
-            <div style={S.headerIcon}>
-              <Scissors size={16} color="#306D29" />
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+              <Scissors size={14} className="text-amber-400" />
             </div>
             <div>
-              <h3 style={S.title}>Edit Clip Timing</h3>
-              <p style={S.subtitle}>{clip.title}</p>
+              <h3 className="text-[14px] font-bold text-white leading-none mb-0.5">Edit Clip Timing</h3>
+              <p className="text-[11px] text-white/30 leading-none truncate max-w-[280px]">{clip.title}</p>
             </div>
           </div>
-          <button style={S.closeBtn} onClick={onClose}>
-            <X size={16} color="#0D530E" />
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-white/30 hover:text-white/70 transition-all">
+            <X size={14} />
           </button>
         </div>
 
-        <div style={S.body}>
-          {/* video preview */}
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+
+          {/* Video preview */}
           {videoUrl && (
-            <div style={S.previewSection}>
-              <div style={S.previewHeader}>
-                <span style={S.previewTitle}>Preview</span>
-                <div style={S.previewControls}>
-                  <button style={S.previewBtn} onClick={() => {
-                    if (videoRef.current) {
-                      if (isPlaying) videoRef.current.pause()
-                      else {
-                        videoRef.current.currentTime = startTime
-                        videoRef.current.play()
-                      }
-                      setIsPlaying(!isPlaying)
-                    }
-                  }}>
-                    {isPlaying ? "Pause" : "Play"}
-                  </button>
-                  <button style={S.previewBtn} onClick={() => {
-                    if (videoRef.current) {
-                      videoRef.current.currentTime = startTime
-                      setPreviewTime(startTime)
-                    }
-                  }}>
-                    Start
-                  </button>
-                  <button style={S.previewBtn} onClick={() => {
-                    if (videoRef.current) {
-                      videoRef.current.currentTime = endTime - 1
-                      setPreviewTime(endTime - 1)
-                    }
-                  }}>
-                    End
-                  </button>
+            <div className="rounded-xl overflow-hidden bg-black border border-white/[0.06]">
+              <div className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border-b border-white/[0.05]">
+                <span className="text-[11px] font-semibold text-white/40">Preview</span>
+                <div className="flex items-center gap-1.5">
+                  {[
+                    { label: "Start", action: () => { if (videoRef.current) { videoRef.current.currentTime = startTime } } },
+                    { label: "Play", action: () => { if (videoRef.current) { isPlaying ? videoRef.current.pause() : (videoRef.current.currentTime = startTime, videoRef.current.play()); setIsPlaying(!isPlaying) } } },
+                    { label: "End", action: () => { if (videoRef.current) { videoRef.current.currentTime = endTime - 1 } } },
+                  ].map(btn => (
+                    <button key={btn.label} onClick={btn.action} className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-white/[0.06] hover:bg-white/[0.1] text-white/50 hover:text-white transition-all">
+                      {btn.label === "Play" ? (isPlaying ? "Pause" : "Play") : btn.label}
+                    </button>
+                  ))}
                 </div>
               </div>
               <video
                 ref={videoRef}
                 src={videoUrl}
-                style={S.videoPreview}
-                playsInline
-                preload="metadata"
+                className="w-full block"
+                style={{ height: 160, objectFit: "cover", background: "#000" }}
+                playsInline preload="metadata"
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
                 onTimeUpdate={() => {
                   if (videoRef.current && videoRef.current.currentTime >= endTime) {
-                    videoRef.current.pause()
-                    setIsPlaying(false)
+                    videoRef.current.pause(); setIsPlaying(false)
                   }
                 }}
                 onEnded={() => setIsPlaying(false)}
-                onError={(e) => {
-                  console.error("Video load error:", e)
-                  setError("Unable to load video preview")
-                }}
               />
-              <div style={S.previewTime}>
-                {formatDuration(previewTime)} / {formatDuration(clipDur)}
-              </div>
             </div>
           )}
 
-          {/* stat cards */}
-          <div style={S.statsRow}>
-            <StatCard label="New Duration" value={formatDuration(clipDur)} color="#306D29" big />
-            <StatCard label="Original" value={formatDuration(origDur)} />
-            <StatCard label="Change" value={`${durChange > 0 ? "+" : ""}${durChange}s`} color={durChangeColor} />
-            <StatCard label="Range" value={`${formatDuration(startTime)}–${formatDuration(endTime)}`} small />
+          {/* Stat cards */}
+          <div className="grid grid-cols-4 gap-2.5">
+            {[
+              { label: "New Duration", value: formatDuration(clipDur), accent: true },
+              { label: "Original", value: formatDuration(origDur), accent: false },
+              { label: "Change", value: `${durChange > 0 ? "+" : ""}${durChange}s`, color: durChange > 0 ? "text-emerald-400" : durChange < 0 ? "text-red-400" : "text-white/30" },
+              { label: "Range", value: `${formatDuration(startTime)}–${formatDuration(endTime)}`, small: true },
+            ].map((card, i) => (
+              <div key={i} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-3 flex flex-col items-center gap-1">
+                <span className={`font-black leading-none ${card.accent ? "text-amber-400 text-lg" : card.color || "text-white text-sm"} ${card.small ? "text-[10px] text-center" : ""}`}>
+                  {card.value}
+                </span>
+                <span className="text-[9px] text-white/25 font-medium uppercase tracking-wider">{card.label}</span>
+              </div>
+            ))}
           </div>
 
-          {/* timeline */}
-          <div style={S.timelineWrap}>
-            <div style={S.timelineHeader}>
-              <span style={S.timeLbl}>{formatDuration(minStart)}</span>
-              <span style={{ ...S.timeLbl, color: "rgba(13, 83, 14, 0.45)" }}>available range</span>
-              <span style={S.timeLbl}>{formatDuration(maxEnd)}</span>
+          {/* Timeline */}
+          <div>
+            <div className="flex justify-between text-[10px] font-mono text-white/20 mb-2">
+              <span>{formatDuration(minStart)}</span>
+              <span className="text-white/15">available range</span>
+              <span>{formatDuration(maxEnd)}</span>
             </div>
 
-            <div ref={trackRef} style={S.track}>
-              <div style={S.trackBg} />
-              <div style={{ ...S.origGhost, left: `${origStartPct}%`, width: `${origEndPct - origStartPct}%` }} />
-              <div style={{ ...S.selection, left: `${startPct}%`, width: `${endPct - startPct}%` }} />
-
-              <Handle style={{ left: `${startPct}%` }} color="#306D29" label={formatDuration(startTime)} labelSide="right" onDragStart={() => setDragging("start")} active={dragging === "start"} />
-              <Handle style={{ left: `${endPct}%` }} color="#b91c1c" label={formatDuration(endTime)} labelSide="left" onDragStart={() => setDragging("end")} active={dragging === "end"} />
-            </div>
-
-            <p style={S.trackHint}>↔ Drag handles or use the nudge buttons</p>
-          </div>
-
-          {/* nudge controls */}
-          <div style={S.nudgeGrid}>
-            <NudgeBox label="Start" value={formatDuration(startTime)} color="#306D29" onNudge={d => nudge("start", d)} />
-            <NudgeBox label="End" value={formatDuration(endTime)} color="#b91c1c" onNudge={d => nudge("end", d)} />
-          </div>
-
-          {/* number inputs */}
-          <div style={S.inputRow}>
-            <div style={S.inputGroup}>
-              <label style={S.inputLbl}>Start (seconds)</label>
-              <input type="number" style={S.input} value={startTime} min={minStart} max={endTime - 3} step={1}
-                onChange={e => {
-                  const n = parseFloat(e.target.value)
-                  if (!isNaN(n)) setStartTime(Math.max(minStart, Math.min(n, endTime - 3)))
-                }}
+            <div ref={trackRef} className="relative h-14 mx-3 select-none touch-none" style={{ touchAction: "none" }}>
+              {/* Track background */}
+              <div className="absolute inset-y-[22px] inset-x-0 h-3 bg-white/[0.06] rounded-full" />
+              {/* Original ghost */}
+              <div
+                className="absolute top-[24px] h-2 rounded-full bg-white/[0.04] border border-dashed border-white/10"
+                style={{ left: `${origStartPct}%`, width: `${origEndPct - origStartPct}%` }}
               />
-            </div>
-            <div style={S.inputGroup}>
-              <label style={S.inputLbl}>End (seconds)</label>
-              <input type="number" style={S.input} value={endTime} min={startTime + 3} max={maxEnd} step={1}
-                onChange={e => {
-                  const n = parseFloat(e.target.value)
-                  if (!isNaN(n)) setEndTime(Math.max(startTime + 3, Math.min(n, maxEnd)))
-                }}
+              {/* Selection */}
+              <div
+                className="absolute top-[22px] h-3 rounded-full bg-amber-500/20 border border-amber-500/40"
+                style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
               />
+
+              {/* Start handle */}
+              <div
+                className={`absolute top-[10px] w-5 h-8 rounded-lg flex flex-col items-center justify-center gap-[3px] cursor-ew-resize transition-all ${dragging === "start" ? "scale-110" : ""}`}
+                style={{ left: `${startPct}%`, transform: "translateX(-50%) translateY(0)", background: "#F59E0B", boxShadow: dragging === "start" ? "0 0 0 4px rgba(245,158,11,0.25)" : "0 2px 8px rgba(0,0,0,0.5)" }}
+                onMouseDown={e => { e.preventDefault(); setDragging("start") }}
+                onTouchStart={() => setDragging("start")}
+              >
+                <div className="w-[2px] h-2 bg-black/40 rounded-full" />
+                <div className="w-[2px] h-2 bg-black/40 rounded-full" />
+                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded whitespace-nowrap">
+                  {formatDuration(startTime)}
+                </div>
+              </div>
+
+              {/* End handle */}
+              <div
+                className={`absolute top-[10px] w-5 h-8 rounded-lg flex flex-col items-center justify-center gap-[3px] cursor-ew-resize transition-all ${dragging === "end" ? "scale-110" : ""}`}
+                style={{ left: `${endPct}%`, transform: "translateX(-50%) translateY(0)", background: "#EF4444", boxShadow: dragging === "end" ? "0 0 0 4px rgba(239,68,68,0.25)" : "0 2px 8px rgba(0,0,0,0.5)" }}
+                onMouseDown={e => { e.preventDefault(); setDragging("end") }}
+                onTouchStart={() => setDragging("end")}
+              >
+                <div className="w-[2px] h-2 bg-white/40 rounded-full" />
+                <div className="w-[2px] h-2 bg-white/40 rounded-full" />
+                <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded whitespace-nowrap">
+                  {formatDuration(endTime)}
+                </div>
+              </div>
             </div>
+            <p className="text-center text-[10px] text-white/20 mt-1">↔ Drag the handles to adjust timing</p>
           </div>
 
-          {error && <div style={S.errorBox}>⚠️ {error}</div>}
+          {/* Nudge controls */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Start", color: "amber", value: formatDuration(startTime), handle: "start", borderColor: "border-amber-500/20" },
+              { label: "End", color: "red", value: formatDuration(endTime), handle: "end", borderColor: "border-red-500/20" },
+            ].map(({ label, color, value, handle, borderColor }) => (
+              <div key={label} className={`bg-white/[0.02] border ${borderColor} rounded-xl p-3`}>
+                <div className="flex justify-between items-center mb-2.5">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${color === "amber" ? "text-amber-400" : "text-red-400"}`}>{label}</span>
+                  <span className="text-[13px] font-black text-white font-mono">{value}</span>
+                </div>
+                <div className="flex gap-1.5">
+                  {[-5, -1, 1, 5].map(d => (
+                    <button
+                      key={d}
+                      onClick={() => nudge(handle, d)}
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                        color === "amber"
+                          ? "border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 hover:border-amber-500/40"
+                          : "border-red-500/20 text-red-400/70 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/40"
+                      }`}
+                    >
+                      {d > 0 ? `+${d}s` : `${d}s`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Number inputs */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Start (seconds)", value: startTime, min: minStart, max: endTime - 3, setter: (v) => setStartTime(Math.max(minStart, Math.min(v, endTime - 3))) },
+              { label: "End (seconds)", value: endTime, min: startTime + 3, max: maxEnd, setter: (v) => setEndTime(Math.max(startTime + 3, Math.min(v, maxEnd))) },
+            ].map(({ label, value, min, max, setter }) => (
+              <div key={label}>
+                <label className="block text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-1.5">{label}</label>
+                <input
+                  type="number"
+                  value={value}
+                  min={min}
+                  max={max}
+                  step={1}
+                  onChange={e => { const n = parseFloat(e.target.value); if (!isNaN(n)) setter(n) }}
+                  className="w-full px-3 py-2.5 bg-white/[0.03] border border-white/[0.08] rounded-xl text-white text-[14px] font-bold focus:outline-none focus:border-amber-500/40 focus:bg-amber-500/[0.03] transition-all"
+                />
+              </div>
+            ))}
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-500/[0.06] border border-red-500/20 rounded-xl text-[12px] text-red-400">
+              ⚠️ {error}
+            </div>
+          )}
         </div>
 
-        {/* footer */}
-        <div style={S.footer}>
-          <button style={S.cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
-          <button style={{ ...S.saveBtn, opacity: saving ? 0.7 : 1 }} onClick={handleSave} disabled={saving}>
+        {/* Footer */}
+        <div className="flex items-center gap-3 px-5 py-4 border-t border-white/[0.06] flex-shrink-0">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.07] text-[13px] font-semibold text-white/50 hover:text-white transition-all disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[13px] font-bold transition-all disabled:opacity-60 hover:shadow-[0_0_24px_rgba(245,158,11,0.3)]"
+          >
             {saving ? (
-              <><span style={S.spinner} /> Creating…</>
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                Creating clip…
+              </>
             ) : (
-              <><Scissors size={14} /> Create Clip ({formatDuration(clipDur)})</>
+              <>
+                <Scissors size={13} strokeWidth={2.5} />
+                Create Clip ({formatDuration(clipDur)})
+              </>
             )}
           </button>
         </div>
       </div>
     </div>
   )
-}
-
-// Sub-components remain same (StatCard, Handle, NudgeBox)
-const StatCard = ({ label, value, color, big, small }) => (
-  <div style={S.statCard}>
-    <span style={{
-      fontSize: big ? 20 : small ? 12 : 16,
-      fontWeight: 800,
-      color: color || "#0D530E",
-      letterSpacing: "-0.02em",
-    }}>{value}</span>
-    <span style={S.statLabel}>{label}</span>
-  </div>
-)
-
-const Handle = ({ style, color, label, labelSide, onDragStart, active }) => (
-  <div
-    style={{
-      ...S.handle,
-      ...style,
-      background: color,
-      boxShadow: active ? `0 0 0 4px ${color}44` : `0 2px 8px rgba(0,0,0,0.5)`,
-    }}
-    onMouseDown={e => { e.preventDefault(); onDragStart() }}
-    onTouchStart={onDragStart}
-  >
-    <div style={S.handleBar} />
-    <div style={S.handleBar} />
-    <div style={{
-      ...S.handleLabel,
-      [labelSide === "right" ? "left" : "right"]: "auto",
-      [labelSide]: 0,
-      transform: labelSide === "right" ? "translateX(8px)" : "translateX(-100%) translateX(-8px)",
-      background: color,
-    }}>
-      {label}
-    </div>
-  </div>
-)
-
-const NudgeBox = ({ label, value, color, onNudge }) => (
-  <div style={{ ...S.nudgeBox, borderColor: color + "33" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
-      <span style={{ fontSize: 14, fontWeight: 800 }}>{value}</span>
-    </div>
-    <div style={S.nudgeBtns}>
-      {[-5, -1, 1, 5].map(d => (
-        <button
-          key={d}
-          style={{ ...S.nudgeBtn, borderColor: color + "44", color }}
-          onClick={() => onNudge(d)}
-        >
-          {d > 0 ? `+${d}s` : `${d}s`}
-        </button>
-      ))}
-    </div>
-  </div>
-)
-
-// ── Updated Responsive Styles ─────────────────────────────────
-const S = {
-  overlay: {
-    position: "fixed", inset: 0, zIndex: 9999,
-    background: "rgba(13, 83, 14, 0.18)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "16px",
-    backdropFilter: "blur(8px)",
-  },
-  modal: {
-    background: "#FFFDF7",
-    border: "1px solid rgba(48, 109, 41, 0.15)",
-    borderRadius: 20,
-    width: "100%",
-    maxWidth: 560,
-    maxHeight: "95vh",           // ← Important
-    boxShadow: "0 32px 80px rgba(48, 109, 41, 0.12)",
-    fontFamily: "'Outfit', 'Sora', system-ui, sans-serif",
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-  },
-
-  header: {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    padding: "18px 20px",
-    borderBottom: "1px solid rgba(48, 109, 41, 0.08)",
-    flexShrink: 0,
-  },
-  headerLeft: { display: "flex", gap: 12, alignItems: "center" },
-  headerIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    background: "rgba(48, 109, 41, 0.06)",
-    border: "1px solid rgba(48, 109, 41, 0.15)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-  },
-  title:    { fontSize: 15, fontWeight: 700, margin: 0, color: "#0D530E" },
-  subtitle: { fontSize: 11, color: "rgba(13, 83, 14, 0.55)", margin: "3px 0 0" },
-  closeBtn: {
-    width: 32, height: 32, borderRadius: 8,
-    background: "rgba(48, 109, 41, 0.04)",
-    border: "1px solid rgba(48, 109, 41, 0.08)",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    cursor: "pointer",
-  },
-
-  body: {
-    padding: "20px",
-    overflowY: "auto",           // ← Makes it scrollable
-    flex: 1,
-  },
-
-  // Preview
-  previewSection: { marginBottom: 20, borderRadius: 12, overflow: "hidden", background: "#000", border: "1px solid rgba(48, 109, 41, 0.12)" },
-  previewHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(255,255,255,0.03)" },
-  previewTitle: { fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.7)" },
-  previewControls: { display: "flex", gap: 6 },
-  previewBtn: { padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", color: "#fff", cursor: "pointer" },
-  videoPreview: { width: "100%", height: "180px", display: "block", objectFit: "cover", background: "#000" }, // Reduced height
-  previewTime: { padding: "6px 12px", fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", background: "rgba(0,0,0,0.5)", textAlign: "center" },
-
-  statsRow: { display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" },
-  statCard: {
-    flex: 1, minWidth: "120px",
-    background: "rgba(48, 109, 41, 0.03)",
-    border: "1px solid rgba(48, 109, 41, 0.07)",
-    borderRadius: 10, padding: "10px 12px",
-    display: "flex", flexDirection: "column", gap: 2, alignItems: "center",
-  },
-  statLabel: { fontSize: 9, color: "rgba(13, 83, 14, 0.45)", letterSpacing: "0.05em" },
-
-  // Timeline
-  timelineWrap: { marginBottom: 20 },
-  timelineHeader: { display: "flex", justifyContent: "space-between", marginBottom: 8 },
-  timeLbl: { fontSize: 10, color: "rgba(13, 83, 14, 0.5)" },
-  track: {
-    position: "relative", height: 56, margin: "0 12px", userSelect: "none", touchAction: "none",
-  },
-  trackBg: { position: "absolute", top: 22, left: 0, right: 0, height: 12, background: "rgba(48, 109, 41, 0.08)", borderRadius: 6 },
-  origGhost: { position: "absolute", top: 24, height: 8, borderRadius: 4, background: "rgba(48, 109, 41, 0.03)", border: "1px dashed rgba(48, 109, 41, 0.25)", pointerEvents: "none" },
-  selection: { position: "absolute", top: 22, height: 12, borderRadius: 6, background: "rgba(48, 109, 41, 0.2)", border: "1px solid rgba(48, 109, 41, 0.35)", pointerEvents: "none" },
-  handle: {
-    position: "absolute", top: 12, width: 20, height: 32, borderRadius: 6,
-    transform: "translateX(-50%)", display: "flex", flexDirection: "column",
-    alignItems: "center", justifyContent: "center", gap: 3, zIndex: 20,
-    cursor: "ew-resize",
-  },
-  handleBar: { width: 2, height: 7, background: "rgba(255,255,255,0.85)", borderRadius: 1 },
-  handleLabel: {
-    position: "absolute", top: -22, fontSize: 10, fontWeight: 700, color: "white",
-    padding: "2px 6px", borderRadius: 4, whiteSpace: "nowrap", pointerEvents: "none",
-  },
-  trackHint: { fontSize: 11, color: "rgba(13, 83, 14, 0.45)", textAlign: "center", margin: "8px 0 0" },
-
-  nudgeGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 },
-  nudgeBox: { background: "rgba(48, 109, 41, 0.02)", border: "1px solid", borderRadius: 10, padding: "12px" },
-  nudgeBtns: { display: "flex", gap: 5 },
-  nudgeBtn: {
-    flex: 1, padding: "6px 0", border: "1px solid", borderRadius: 6,
-    background: "transparent", fontSize: 11, fontWeight: 600, cursor: "pointer",
-  },
-
-  inputRow: { display: "flex", gap: 12, marginBottom: 4 },
-  inputGroup: { flex: 1, display: "flex", flexDirection: "column", gap: 6 },
-  inputLbl: { fontSize: 11, color: "rgba(13, 83, 14, 0.5)", fontWeight: 600 },
-  input: {
-    padding: "10px 12px", background: "#FFFDF7", border: "1px solid rgba(48, 109, 41, 0.15)",
-    borderRadius: 8, color: "#1C2E1A", fontSize: 14, fontWeight: 600, width: "100%",
-  },
-
-  errorBox: { marginTop: 8, padding: "8px 12px", background: "rgba(220,38,38,0.05)", border: "1px solid rgba(220,38,38,0.18)", borderRadius: 8, fontSize: 12, color: "#b91c1c" },
-
-  footer: {
-    display: "flex", gap: 10, padding: "16px 20px",
-    borderTop: "1px solid rgba(48, 109, 41, 0.08)",
-    flexShrink: 0,
-  },
-  cancelBtn: {
-    padding: "10px 20px", borderRadius: 9, background: "rgba(48, 109, 41, 0.05)",
-    border: "1px solid rgba(48, 109, 41, 0.12)", color: "#306D29", fontSize: 13, fontWeight: 600, cursor: "pointer",
-  },
-  saveBtn: {
-    flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-    padding: "10px 20px", borderRadius: 9, background: "linear-gradient(135deg, #306D29, #0D530E)",
-    border: "none", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
-    boxShadow: "0 4px 16px rgba(48, 109, 41, 0.2)",
-  },
-  spinner: {
-    display: "inline-block", width: 14, height: 14,
-    border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white",
-    borderRadius: "50%", animation: "spin 0.65s linear infinite",
-  },
 }
 
 export default ExtendCutModal

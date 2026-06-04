@@ -87,6 +87,7 @@ const CAPTION_STYLE_PRESETS = {
   aesthetic: { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#D8B4FE", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(0,0,0,0.7)",  bold: true,  uppercase: false, scalePop: true,  outline: 0, shadow: 0 },
   cyberpunk: { font: "Arial Black",       fontSize: 88, primaryColor: "#00FFFF", highlightColor: "#FF00FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
   drktalks:  { font: "Poppins",           fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#00D2FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 8, shadow: 0 },
+  pill:      { font: "Outfit",            fontSize: 72, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 0, shadow: 0 },
 }
 
 const resolveCaptionStyle = (styleId) => {
@@ -1037,6 +1038,45 @@ const getDynamicHighlightColor = (word, defaultHighlightColor) => {
   return defaultHighlightColor;
 };
 
+const drawRoundedRect = (w, h, r) => {
+  w = Math.round(w);
+  h = Math.round(h);
+  r = Math.round(r);
+  const k = 0.55228;
+  const radius = Math.round(Math.min(r, h / 2));
+  const cx1 = w - radius;
+  const cx2 = radius;
+  const commands = [
+    `m ${cx2} 0`,
+    `l ${cx1} 0`,
+    `b ${Math.round(cx1 + radius*k)} 0 ${w} ${Math.round(radius*(1-k))} ${w} ${radius}`,
+    `b ${w} ${Math.round(h - radius*(1-k))} ${Math.round(cx1 + radius*k)} ${h} ${cx1} ${h}`,
+    `l ${cx2} ${h}`,
+    `b ${Math.round(cx2 - radius*k)} ${h} 0 ${Math.round(h - radius*(1-k))} 0 ${h - radius}`,
+    `b 0 ${Math.round(radius*(1-k))} ${Math.round(cx2 - radius*k)} 0 ${cx2} 0`
+  ];
+  return commands.join(" ");
+};
+
+const estimateWordWidth = (word, fontSize) => {
+  let width = 0;
+  for (let i = 0; i < word.length; i++) {
+    const char = word[i];
+    if (/[A-Z]/.test(char)) {
+      width += fontSize * 0.65;
+    } else if (/[a-z]/.test(char)) {
+      width += fontSize * 0.45;
+    } else if (/[0-9]/.test(char)) {
+      width += fontSize * 0.5;
+    } else if (/[\u0900-\u097F]/.test(char)) {
+      width += fontSize * 0.6;
+    } else {
+      width += fontSize * 0.35;
+    }
+  }
+  return Math.round(width);
+};
+
 const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, language = "english", stylePreset = "classic", selectedFont = null) => {
   const style   = resolveCaptionStyle(stylePreset)
   const hasDevanagari = segments.some(w => /[\u0900-\u097F]/.test(w.word))
@@ -1098,52 +1138,90 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   }
 
   const lines = []
-  const wordsPerGroup = (stylePreset === "drktalks") ? 6 : 4
-  for (let i = 0; i < segments.length; i += wordsPerGroup) {
-    const g = segments.slice(i, i + wordsPerGroup)
-    if (!g.length) continue
-    for (let wi = 0; wi < g.length; wi++) {
-      const cur = g[wi]
-      const end = wi < g.length - 1 ? g[wi+1].start : cur.end + 0.05
+  if (stylePreset === "pill") {
+    const posY = videoHeight - marginV;
+    for (let i = 0; i < segments.length; i++) {
+      const cur = segments[i];
+      let displayWord = (cur.word || "").trim();
+      if (style.uppercase) {
+        displayWord = displayWord.toUpperCase();
+      }
       
-      const textParts = []
-      for (let idx = 0; idx < g.length; idx++) {
-        const w = g[idx]
-        let displayWord = w.word
-        if (stylePreset === "drktalks") {
-          displayWord = toTitleCase(displayWord)
-        } else if (style.uppercase) {
-          displayWord = displayWord.toUpperCase()
-        }
+      const h = Math.round(fontSize * 1.35);
+      const r = Math.round(h / 2);
+      const w = Math.max(Math.round(fontSize * 1.2), estimateWordWidth(displayWord, fontSize) + Math.round(fontSize * 0.85));
+      
+      const activeHighlight = getDynamicHighlightColor(cur.word, highlightColor);
+      const isHighlighted = activeHighlight !== highlightColor;
+      
+      let pillColor, pillAlpha, textColor;
+      if (isHighlighted) {
+        pillColor = activeHighlight;
+        pillAlpha = "&H00&"; // Opaque
+        textColor = "&H000000&"; // Black text on highlighted pill
+      } else {
+        pillColor = "&H000000&"; // Black background
+        pillAlpha = "&H50&"; // 60% opacity (40% transparent)
+        textColor = "&HFFFFFF&"; // White text
+      }
+      
+      const drawCmd = drawRoundedRect(w, h, r);
+      const popTag = `\\fscx90\\fscy90\\t(0,100,\\fscx100\\fscy100)`;
+      const shiftX = Math.round(w / 2);
+      const shiftY = Math.round(h / 2);
+      const centerX = Math.round(videoWidth / 2);
+      
+      lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(cur.end)},S,,0,0,0,,{${popTag}\\an5\\pos(${centerX - shiftX},${posY - shiftY})\\1a${pillAlpha}\\c${pillColor}\\bord0\\shad0\\p1}${drawCmd}{\\p0}`);
+      lines.push(`Dialogue: 1,${toAss(cur.start)},${toAss(cur.end)},S,,0,0,0,,{${popTag}\\an5\\pos(${centerX},${posY})\\c${textColor}\\bord0\\shad0}${displayWord}`);
+    }
+  } else {
+    const wordsPerGroup = (stylePreset === "drktalks") ? 6 : 4
+    for (let i = 0; i < segments.length; i += wordsPerGroup) {
+      const g = segments.slice(i, i + wordsPerGroup)
+      if (!g.length) continue
+      for (let wi = 0; wi < g.length; wi++) {
+        const cur = g[wi]
+        const end = wi < g.length - 1 ? g[wi+1].start : cur.end + 0.05
         
-        let wordFormatted = ""
-        if (idx === wi) {
-          let popScale = 112
-          if (stylePreset !== "drktalks") {
-            const wordText = w.word.toLowerCase().replace(/[^\w\u0900-\u097F]/g, "")
-            const hookWords = new Set(["broke", "never", "million", "billion", "crazy", "secret", "shocking", "gaya", "sach", "bhayanak", "दर", "सत्य", "राज"])
-            const emotionalWords = new Set(["amazing", "love", "hate", "scared", "fear", "anger", "angry", "emotional", "mind", "soul", "heart", "god", "death", "live", "life"])
-            
-            if (hookWords.has(wordText)) {
-              popScale = 125
-            } else if (emotionalWords.has(wordText)) {
-              popScale = 118
-            }
-          } else {
-            popScale = 120
+        const textParts = []
+        for (let idx = 0; idx < g.length; idx++) {
+          const w = g[idx]
+          let displayWord = w.word
+          if (stylePreset === "drktalks") {
+            displayWord = toTitleCase(displayWord)
+          } else if (style.uppercase) {
+            displayWord = displayWord.toUpperCase()
           }
           
-          const popTag = style.scalePop ? `\\fscx${popScale}\\fscy${popScale}` : ""
-          const activeColor = (stylePreset === "drktalks") ? highlightColor : getDynamicHighlightColor(w.word, highlightColor)
-          
-          wordFormatted = `{\\c${activeColor}&\\3c${outlineColor}&${popTag}}${displayWord}{\\r}`
-        } else {
-          wordFormatted = `{\\c${primaryColor}&\\3c${outlineColor}&}${displayWord}{\\r}`
+          let wordFormatted = ""
+          if (idx === wi) {
+            let popScale = 112
+            if (stylePreset !== "drktalks") {
+              const wordText = w.word.toLowerCase().replace(/[^\w\u0900-\u097F]/g, "")
+              const hookWords = new Set(["broke", "never", "million", "billion", "crazy", "secret", "shocking", "gaya", "sach", "bhayanak", "दर", "सत्य", "राज"])
+              const emotionalWords = new Set(["amazing", "love", "hate", "scared", "fear", "anger", "angry", "emotional", "mind", "soul", "heart", "god", "death", "live", "life"])
+              
+              if (hookWords.has(wordText)) {
+                popScale = 125
+              } else if (emotionalWords.has(wordText)) {
+                popScale = 118
+              }
+            } else {
+              popScale = 120
+            }
+            
+            const popTag = style.scalePop ? `\\fscx${popScale}\\fscy${popScale}` : ""
+            const activeColor = (stylePreset === "drktalks") ? highlightColor : getDynamicHighlightColor(w.word, highlightColor)
+            
+            wordFormatted = `{\\c${activeColor}&\\3c${outlineColor}&${popTag}}${displayWord}{\\r}`
+          } else {
+            wordFormatted = `{\\c${primaryColor}&\\3c${outlineColor}&}${displayWord}{\\r}`
+          }
+          textParts.push(wordFormatted)
         }
-        textParts.push(wordFormatted)
+        const text = textParts.join(" ")
+        lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(end)},S,,0,0,0,,{\\an${alignment}}${text}`)
       }
-      const text = textParts.join(" ")
-      lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(end)},S,,0,0,0,,{\\an${alignment}}${text}`)
     }
   }
   return header + lines.join("\n") + "\n"
