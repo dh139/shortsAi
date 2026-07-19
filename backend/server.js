@@ -48,6 +48,7 @@ const axios = require("axios")
 require("dotenv").config()
 
 const { downloadVideo, findYtDlpBinary } = require("./downloader")
+const { analyzeTranscriptForClips } = require("./aiAnalyzer")
 const authRoutes = require("./routes/auth")
 const User       = require("./models/user")
 
@@ -76,22 +77,36 @@ app.use("/api/auth", authRoutes)
 // ─────────────────────────────────────────────────────────────────────────────
 //  CAPTION STYLE PRESETS  (mirrors client-side CAPTION_STYLES)
 // ─────────────────────────────────────────────────────────────────────────────
+// Premium preset library (21 styles). Larger type + strong outline/shadow so
+// captions read as professional (Opus/Submagic-grade) on any background.
 const CAPTION_STYLE_PRESETS = {
-  classic:   { font: "Arial Black",      fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 5, shadow: 2 },
-  neon:      { font: "Impact",            fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
-  tiktok:    { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "center", bgBox: true,  bgColor: "rgba(0,0,0,0.75)", bold: true, uppercase: true,  scalePop: true,  outline: 0, shadow: 0 },
-  minimal:   { font: "Helvetica Neue",    fontSize: 68, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: false, uppercase: false, scalePop: false, outline: 3, shadow: 1 },
-  fire:      { font: "Arial Black",       fontSize: 88, primaryColor: "#FFF176", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
-  hindi:     { font: "Noto Sans",         fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 5, shadow: 2 },
-  hormozi:   { font: "Impact",            fontSize: 92, primaryColor: "#FFFF00", highlightColor: "#00FF00", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
-  aesthetic: { font: "Montserrat",        fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#D8B4FE", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(0,0,0,0.7)",  bold: true,  uppercase: false, scalePop: true,  outline: 0, shadow: 0 },
-  cyberpunk: { font: "Arial Black",       fontSize: 88, primaryColor: "#00FFFF", highlightColor: "#FF00FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 5, shadow: 2 },
-  drktalks:  { font: "Poppins",           fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#00D2FF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 8, shadow: 0 },
-  pill:      { font: "Outfit",            fontSize: 72, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: false, outline: 0, shadow: 0 },
+  hormozi1:  { font: "Impact",            fontSize: 100, primaryColor: "#FFFFFF", highlightColor: "#00E676", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3 },
+  hormozi2:  { font: "Impact",            fontSize: 100, primaryColor: "#FFFFFF", highlightColor: "#FFE600", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3 },
+  beast:     { font: "Arial Black",       fontSize: 98,  primaryColor: "#FFD400", highlightColor: "#FF3B30", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 9, shadow: 4, italic: true },
+  negativa:  { font: "Montserrat",        fontSize: 88,  primaryColor: "#FFFFFF", highlightColor: "#4ADE80", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(0,0,0,0.88)", bold: true,  uppercase: false, scalePop: true,  outline: 0, shadow: 0 },
+  cove:      { font: "Poppins",           fontSize: 92,  primaryColor: "#FFFFFF", highlightColor: "#7DD3FC", outlineColor: "#0B2540", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 5, shadow: 6 },
+  leon:      { font: "Arial Black",       fontSize: 90,  primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(226,45,35,0.96)", bold: true,  uppercase: true,  scalePop: true,  outline: 0, shadow: 0 },
+  laguna:    { font: "Montserrat",        fontSize: 96,  primaryColor: "#FFFFFF", highlightColor: "#FDE047", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3 },
+  tuba:      { font: "Outfit",            fontSize: 90,  primaryColor: "#FFFFFF", highlightColor: "#FFD400", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 6, shadow: 3 },
+  splitz:    { font: "Georgia",           fontSize: 90,  primaryColor: "#F1A65A", highlightColor: "#FFD8A8", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 5, shadow: 4, italic: true },
+  aria:      { font: "Poppins",           fontSize: 92,  primaryColor: "#FFC93C", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 6, shadow: 3 },
+  stack:     { font: "Montserrat",        fontSize: 90,  primaryColor: "#FFFFFF", highlightColor: "#FDE047", outlineColor: "#000000", position: "bottom", bgBox: true,  bgColor: "rgba(0,0,0,0.6)", bold: true,  uppercase: true,  scalePop: true,  outline: 0, shadow: 0 },
+  lume:      { font: "Poppins",           fontSize: 90,  primaryColor: "#E4C48C", highlightColor: "#FFF3D6", outlineColor: "#1A1206", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 5, shadow: 4 },
+  marca:     { font: "Arial Black",       fontSize: 88,  primaryColor: "#111111", highlightColor: "#111111", outlineColor: "#FFD400", position: "bottom", bgBox: true,  bgColor: "rgba(255,214,0,0.96)", bold: true,  uppercase: true,  scalePop: true,  outline: 0, shadow: 0 },
+  canto:     { font: "Georgia",           fontSize: 90,  primaryColor: "#F3EAD6", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 5, shadow: 4, italic: true },
+  silk:      { font: "Poppins",           fontSize: 90,  primaryColor: "#3DE0D2", highlightColor: "#FFFFFF", outlineColor: "#032B29", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 6, shadow: 3 },
+  slash:     { font: "Arial Black",       fontSize: 94,  primaryColor: "#FF3D9A", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 8, shadow: 3 },
+  dense:     { font: "Arial Black",       fontSize: 98,  primaryColor: "#B6FF3C", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 8, shadow: 3 },
+  open:      { font: "Montserrat",        fontSize: 92,  primaryColor: "#2FD891", highlightColor: "#FFFFFF", outlineColor: "#00301F", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 7, shadow: 3 },
+  vibe:      { font: "Poppins",           fontSize: 94,  primaryColor: "#34D058", highlightColor: "#FFFFFF", outlineColor: "#00230F", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: false, scalePop: true,  outline: 7, shadow: 3 },
+  rise:      { font: "Montserrat",        fontSize: 94,  primaryColor: "#FFC01E", highlightColor: "#FFFFFF", outlineColor: "#2A1B00", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3 },
+  prism:     { font: "Poppins",           fontSize: 94,  primaryColor: "#C4A0FF", highlightColor: "#FF7AD9", outlineColor: "#1A0B2E", position: "bottom", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3 },
+  // Per-word auto color: active word cyan, numbers auto-yellow, rest white (the "steal my style" look).
+  pop:       { font: "Montserrat",        fontSize: 96,  primaryColor: "#FFFFFF", highlightColor: "#37B6FF", outlineColor: "#001322", position: "center", bgBox: false, bgColor: "transparent", bold: true,  uppercase: true,  scalePop: true,  outline: 7, shadow: 3, dynamicColor: true, numberColor: "#FFE21F" },
 }
 
 const resolveCaptionStyle = (styleId) => {
-  return CAPTION_STYLE_PRESETS[styleId] || CAPTION_STYLE_PRESETS.classic
+  return CAPTION_STYLE_PRESETS[styleId] || CAPTION_STYLE_PRESETS.hormozi1
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -399,25 +414,59 @@ const transcribeWithWhisper = async (videoPath, hintLanguage = null) => {
     }
   }
 
-  console.log(`[whisper] Running transcription on full audio file: ${fullAudioPath}...`)
-  
-  let json = null
-  try {
-    json = await runWhisperOnFile(fullAudioPath, baseTransDir, detectedLanguage)
-  } catch (e) {
-    console.error("[whisper] Transcription failed:", e.message)
+  // ── Parallel chunked transcription — many short Whisper passes at once is far
+  //    faster wall-clock than one sequential pass over the whole file. ──
+  const audioDur   = await getRealDuration(fullAudioPath)
+  const CHUNK_SEC  = 240
+  const os         = require("os")
+  const CONCURRENCY = Math.max(2, Math.min(4, (os.cpus()?.length || 4) - 1))
+
+  const chunks = []
+  for (let start = 0; start < audioDur; start += CHUNK_SEC) {
+    chunks.push({ index: chunks.length, start, dur: Math.min(CHUNK_SEC, audioDur - start) })
+  }
+  console.log(`[whisper] Transcribing ${Math.round(audioDur)}s in ${chunks.length} chunk(s), ${CONCURRENCY} parallel...`)
+
+  const transcribeChunk = async (chunk) => {
+    const chunkDir = path.join(baseTransDir, `${baseStem}_c${chunk.index}`)
+    await fs.mkdir(chunkDir, { recursive: true }).catch(() => {})
+    const chunkWav = path.join(chunkDir, `${baseStem}_c${chunk.index}.wav`)
+    try {
+      await sliceWavChunk(fullAudioPath, chunkWav, chunk.start, chunk.dur)
+      const cjson = await runWhisperOnFile(chunkWav, chunkDir, detectedLanguage)
+      return extractWordsFromWhisperJson(cjson, chunk.start)
+    } catch (e) {
+      console.error(`[whisper] chunk ${chunk.index} failed:`, e.message)
+      return []
+    } finally {
+      await safeDelete(chunkWav).catch(() => {})
+      await safeRmdir(chunkDir).catch(() => {})
+    }
   }
 
+  const results = new Array(chunks.length)
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < chunks.length) {
+      const my = cursor++
+      results[my] = await transcribeChunk(chunks[my])
+      console.log(`[whisper] chunk ${my + 1}/${chunks.length} done (${results[my].length} words)`)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker))
+
   await safeDelete(fullAudioPath).catch(() => {})
-  
-  if (!json) return null
-  
-  const allWords = extractWordsFromWhisperJson(json, 0)
+
+  let allWords = []
+  for (const r of results) if (Array.isArray(r)) allWords = allWords.concat(r)
+  allWords.sort((a, b) => a.start - b.start)
+  // Drop near-duplicate words that can appear at chunk boundaries.
+  allWords = allWords.filter((w, i) => i === 0 || !(Math.abs(w.start - allWords[i - 1].start) < 0.15 && w.word === allWords[i - 1].word))
+
   if (allWords.length < 10) return null
-  
-  const finalLang = json.language || detectedLanguage || "en"
-  const appLanguage = (finalLang === "hi" || finalLang === "ur" || finalLang === "urdu") ? "hindi" : finalLang === "en" ? "english" : finalLang || "english"
-  
+
+  const appLanguage = (detectedLanguage === "hi" || detectedLanguage === "ur" || detectedLanguage === "urdu") ? "hindi" : detectedLanguage === "en" ? "english" : (detectedLanguage || "english")
+
   console.log(`[whisper] ✅ Transcription complete! Words found: ${allWords.length}`)
   return { words: allWords, detectedLanguage: appLanguage }
 }
@@ -1077,25 +1126,44 @@ const estimateWordWidth = (word, fontSize) => {
   return Math.round(width);
 };
 
-const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, language = "english", stylePreset = "classic", selectedFont = null) => {
+const NUMBER_WORDS = new Set([
+  "one","two","three","four","five","six","seven","eight","nine","ten",
+  "hundred","thousand","million","billion","trillion","percent","first","second","third",
+  "ek","do","teen","char","char","paanch","panch","chheh","saat","aath","nau","das","sau","hazaar",
+])
+
+const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, language = "english", stylePreset = "hormozi1", selectedFont = null, overrides = {}) => {
   const style   = resolveCaptionStyle(stylePreset)
+  const ov      = overrides || {}
   const hasDevanagari = segments.some(w => /[\u0900-\u097F]/.test(w.word))
   let font = hasDevanagari ? "Noto Sans" : style.font
   if (!hasDevanagari && selectedFont && selectedFont !== "default") {
     font = selectedFont
   }
-  const fontSize = style.fontSize
+  // \u2500\u2500 User-editable overrides (text/highlight color, size, position, spacing) \u2500\u2500
+  const fontSize       = ov.fontSize ? Math.round(ov.fontSize) : style.fontSize
+  const primaryHex     = ov.textColor      || style.primaryColor
+  const highlightHex   = ov.highlightColor || style.highlightColor
+  const letterSpacing  = ov.letterSpacing != null ? Math.round(ov.letterSpacing) : 1
+  const highlightWords = ov.highlightWords !== false   // default ON
+  const posXpct        = ov.positionX != null ? ov.positionX : 50
+  const posYpct        = ov.positionY != null ? ov.positionY : (style.position === "center" ? 44 : 79)
+  const posX           = Math.round(videoWidth  * posXpct / 100)
+  const posY           = Math.round(videoHeight * posYpct / 100)
+
   const boldFlag = style.bold ? "-1" : "0"
+  const italicFlag = style.italic ? "-1" : "0"
   const BOM = "\uFEFF"
 
-  // Position: bottom=2, center=5
-  const alignment = style.position === "center" ? "5" : "2"
-  const marginV   = style.position === "center" ? Math.round(videoHeight * 0.45) : Math.round(videoHeight * 0.18)
+  // We anchor every line with \an5\pos(x,y) so captions can be freely dragged.
+  const alignment = "5"
+  const marginV   = Math.round(videoHeight * 0.44)
 
   // Colors in ASS format
-  const primaryColor   = hexToAss(style.primaryColor)
+  const primaryColor   = hexToAss(primaryHex)
   const outlineColor   = hexToAss(style.outlineColor)
-  const highlightColor = hexToAss(style.highlightColor)
+  const highlightColor = hexToAss(highlightHex)
+  const numberColorAss = hexToAss(style.numberColor || "#FFE21F")
 
   const outline = style.outline !== undefined ? style.outline : 5
   const shadow  = style.shadow !== undefined ? style.shadow : 2
@@ -1110,6 +1178,8 @@ const buildAssSubtitles = (segments, videoWidth = 1080, videoHeight = 1920, lang
     bgColor = parsed.color
   }
 
+  const posTag = `\\an5\\pos(${posX},${posY})`
+
   const header = `${BOM}[Script Info]
 ScriptType: v4.00+
 PlayResX: ${videoWidth}
@@ -1119,7 +1189,7 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: S,${font},${fontSize},${primaryColor},&H000000FF,${outlineColor},${bgColor},${boldFlag},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},60,60,${marginV},1
+Style: S,${font},${fontSize},${primaryColor},&H000000FF,${outlineColor},${bgColor},${boldFlag},${italicFlag},0,0,100,100,${letterSpacing},0,${borderStyle},${outline},${shadow},${alignment},60,60,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1175,7 +1245,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       lines.push(`Dialogue: 1,${toAss(cur.start)},${toAss(cur.end)},S,,0,0,0,,{${popTag}\\an5\\pos(${centerX},${posY})\\c${textColor}\\bord0\\shad0}${displayWord}`);
     }
   } else {
-    const wordsPerGroup = (stylePreset === "drktalks") ? 6 : 4
+    const wordsPerGroup = 3
     for (let i = 0; i < segments.length; i += wordsPerGroup) {
       const g = segments.slice(i, i + wordsPerGroup)
       if (!g.length) continue
@@ -1187,55 +1257,46 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for (let idx = 0; idx < g.length; idx++) {
           const w = g[idx]
           let displayWord = w.word
-          if (stylePreset === "drktalks") {
-            displayWord = toTitleCase(displayWord)
-          } else if (style.uppercase) {
+          if (style.uppercase) {
             displayWord = displayWord.toUpperCase()
           }
-          
+
+          // For dynamic-color styles (e.g. "pop"), numbers always get an accent
+          // color even when they aren't the active word — the "steal my style" look.
+          const isNumberWord = style.dynamicColor && (/\d/.test(w.word) || NUMBER_WORDS.has(w.word.toLowerCase().replace(/[^\wऀ-ॿ]/g, "")))
+
           let wordFormatted = ""
-          if (idx === wi) {
-            let popScale = 112
-            if (stylePreset !== "drktalks") {
-              const wordText = w.word.toLowerCase().replace(/[^\w\u0900-\u097F]/g, "")
-              const hookWords = new Set(["broke", "never", "million", "billion", "crazy", "secret", "shocking", "gaya", "sach", "bhayanak", "दर", "सत्य", "राज"])
-              const emotionalWords = new Set(["amazing", "love", "hate", "scared", "fear", "anger", "angry", "emotional", "mind", "soul", "heart", "god", "death", "live", "life"])
-              
-              if (hookWords.has(wordText)) {
-                popScale = 125
-              } else if (emotionalWords.has(wordText)) {
-                popScale = 118
-              }
-            } else {
-              popScale = 120
-            }
-            
-            const popTag = style.scalePop ? `\\fscx${popScale}\\fscy${popScale}` : ""
-            const activeColor = (stylePreset === "drktalks") ? highlightColor : getDynamicHighlightColor(w.word, highlightColor)
-            
+          if (idx === wi && highlightWords) {
+            const activeColor = isNumberWord ? numberColorAss : highlightColor
+            const popScale = 114
+            const over = popScale + 6
+            const popTag = style.scalePop
+              ? `\\fscx100\\fscy100\\t(0,90,\\fscx${over}\\fscy${over})\\t(90,180,\\fscx${popScale}\\fscy${popScale})`
+              : ""
             wordFormatted = `{\\c${activeColor}&\\3c${outlineColor}&${popTag}}${displayWord}{\\r}`
           } else {
-            wordFormatted = `{\\c${primaryColor}&\\3c${outlineColor}&}${displayWord}{\\r}`
+            const restColor = isNumberWord ? numberColorAss : primaryColor
+            wordFormatted = `{\\c${restColor}&\\3c${outlineColor}&}${displayWord}{\\r}`
           }
           textParts.push(wordFormatted)
         }
         const text = textParts.join(" ")
-        lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(end)},S,,0,0,0,,{\\an${alignment}}${text}`)
+        lines.push(`Dialogue: 0,${toAss(cur.start)},${toAss(end)},S,,0,0,0,,{${posTag}}${text}`)
       }
     }
   }
   return header + lines.join("\n") + "\n"
 }
 
-const burnCaptionsAss = async (inputPath, outputPath, segments, language = "english", stylePreset = "classic", selectedFont = null) => {
-  const assPath = path.join("uploads", `caps_${path.basename(inputPath, ".mp4")}.ass`)
+const burnCaptionsAss = async (inputPath, outputPath, segments, language = "english", stylePreset = "hormozi1", selectedFont = null, overrides = {}) => {
+  const assPath = path.join("uploads", `caps_${path.basename(outputPath, ".mp4")}.ass`)
   const dims = await new Promise(resolve => {
     ffmpeg.ffprobe(inputPath, (err, meta) => {
       const vs = (meta?.streams || []).find(s => s.codec_type === "video") || {}
       resolve({ w: vs.width || 1080, h: vs.height || 1920 })
     })
   })
-  await fs.writeFile(assPath, buildAssSubtitles(segments, dims.w, dims.h, language, stylePreset, selectedFont), "utf8")
+  await fs.writeFile(assPath, buildAssSubtitles(segments, dims.w, dims.h, language, stylePreset, selectedFont, overrides), "utf8")
   
   const fontsDir = path.resolve(__dirname, "fonts")
   const fontsDirSafe = fontsDir.replace(/\\/g, "/").replace(/^([A-Za-z]):/, "$1\\:")
@@ -1471,10 +1532,14 @@ const processClipsInParallel = async (videoPath, moments, sessionId, userId, vid
           hasRealCaptions = false
         }
 
-        const viralTitles = generateViralTitles(videoInfo, { ...moment, language: clipLang })
+        const isAi = moment.pattern === "ai"
+        const genTitles = generateViralTitles(videoInfo, { ...moment, language: clipLang })
+        const viralTitles = isAi && moment.title ? [moment.title, ...genTitles].slice(0, 4) : genTitles
+        const displayTitle = isAi && moment.title ? moment.title : `${moment.title} – ${moment.reason}`
         const ts = Date.now() + bi
         return {
-          id: moment.id, title: `${moment.title} – ${moment.reason}`, viralTitles,
+          id: moment.id, title: displayTitle, viralTitles,
+          description: moment.description || "", hashtags: moment.hashtags || [], aiReason: moment.reason || "",
           startTime: moment.startTime, endTime: moment.endTime, duration: moment.duration,
           viralScore: moment.viralScore,
           thumbnail: `/uploads/thumbnails/${moment.id}.jpg`, videoUrl: `/uploads/clips/${moment.id}.mp4`,
@@ -1536,28 +1601,74 @@ const processVideoInBackground = async (sessionId, url) => {
     ])
     const finalHooks = audioHooks.length > 5 ? audioHooks : await detectAudioHooks(videoPath, duration)
 
-    emit("🤖 Planning clip moments…", 30)
-    const moments = detectSmartMoments(duration, videoType, hintLanguage, videoInfo, finalHooks)
+    // ── Full transcription (drives BOTH AI clip selection and real captions) ──
+    let fullTranscript = null
+    try {
+      emit("📝 Transcribing audio…", 26, "transcribing")
+      const tr = await transcribeWithWhisper(videoPath, hintLanguage)
+      if (tr?.words?.length) {
+        fullTranscript   = tr.words
+        resolvedLanguage = tr.detectedLanguage || hintLanguage
+        console.log(`[pipeline] Transcript ready: ${tr.words.length} words, lang=${resolvedLanguage}`)
+      } else {
+        console.warn("[pipeline] Transcription empty — captions will use placeholders")
+      }
+    } catch (e) {
+      console.error("[pipeline] Transcription failed:", e.message)
+    }
+
+    // ── AI clip selection (MiniMax-M3) with heuristic fallback ──
+    emit("🤖 AI analyzing viral moments…", 30, "analysing")
+    let moments = null
+    if (fullTranscript) {
+      try {
+        moments = await analyzeTranscriptForClips(fullTranscript, {
+          title: videoInfo.title,
+          videoType,
+          language: resolvedLanguage,
+          duration,
+          targetClips: 45,
+        })
+      } catch (e) {
+        console.error("[pipeline] AI analysis failed, falling back:", e.message)
+      }
+    }
+    let usedAi = Array.isArray(moments) && moments.length > 0
+    if (!usedAi) {
+      console.log("[pipeline] Using heuristic clip planner (no AI results)")
+      moments = detectSmartMoments(duration, videoType, resolvedLanguage, videoInfo, finalHooks)
+    } else {
+      console.log(`[pipeline] ✅ AI selected ${moments.length} viral clips`)
+    }
     session.totalSteps = moments.length; session.completedSteps = 0
 
     emit(`📸 Generating clip screenshots…`, 35, "extracting")
     const clipsRaw = await processClipsInParallel(
       videoPath, moments, sessionId, session.userId,
-      videoType, videoInfo, layout, null, hintLanguage
+      videoType, videoInfo, layout, fullTranscript, resolvedLanguage
     )
 
+    // Attach AI metadata (description / hashtags) from each moment onto its clip.
+    const momentById = new Map(moments.map(m => [m.id, m]))
     const clips = clipsRaw.map(clip => {
-      const lang = hintLanguage
-      return { ...clip, language: lang, captionSegments: generatePlaceholderCaptions(clip.duration, lang, clip.startTime), hasRealCaptions: false }
+      const m = momentById.get(clip.id) || {}
+      return {
+        ...clip,
+        language: resolvedLanguage,
+        description: m.description || clip.description || "",
+        hashtags: m.hashtags || clip.hashtags || [],
+        aiReason: m.reason || clip.reason || "",
+      }
     })
 
     session.videoInfo = {
       title: videoInfo.title || "YouTube Video", duration, originalUrl: url,
-      language: hintLanguage, videoType,
+      language: resolvedLanguage, videoType,
       quality: dl.quality || "1080p", fileSize: dl.size, layout,
-      hasRealCaptions: false,
+      hasRealCaptions: !!fullTranscript,
+      aiSelected: usedAi,
       originalVideoPath: videoPath,
-      fullTranscript: null,
+      fullTranscript,
     }
     session.status      = "completed"
     session.progress    = 100
@@ -1621,21 +1732,32 @@ app.post("/api/generate-clips", async (req, res) => {
 app.post("/api/add-captions/:clipId", async (req, res) => {
   try {
     const { clipId } = req.params
-    const { sessionId, captionStyle = "classic", selectedFont = null } = req.body
+    const { sessionId, captionStyle = "hormozi1", selectedFont = null, overrides = {} } = req.body
     const session = processingSessions.get(sessionId)
     if (!session) return res.status(404).json({ success: false, error: "Session not found" })
     const clip = session.clips?.find(c => c.id === clipId)
     if (!clip)  return res.status(404).json({ success: false, error: "Clip not found" })
 
+    // Encode the editable overrides into the filename so each customization is
+    // cached separately (and a fresh look never serves a stale burn).
+    const ov = overrides || {}
+    const ovParts = [
+      ov.textColor, ov.highlightColor, ov.fontSize, ov.positionX, ov.positionY,
+      ov.letterSpacing, ov.highlightWords === false ? "nohl" : null, selectedFont,
+    ].filter(v => v !== undefined && v !== null && v !== "")
+    const ovKey = ovParts.length
+      ? "_" + require("crypto").createHash("md5").update(ovParts.join("|")).digest("hex").slice(0, 8)
+      : ""
+
     const src        = `uploads/clips/${clipId}.mp4`
-    const dest       = `uploads/clips/${clipId}_captioned_${captionStyle}.mp4`
+    const dest       = `uploads/clips/${clipId}_captioned_${captionStyle}${ovKey}.mp4`
     const legacyDest = `uploads/clips/${clipId}_captioned.mp4`
 
     if ((await verifyFile(dest, 0.1)).exists) {
       try { await fs.copyFile(dest, legacyDest) } catch {}
       return res.json({
         success: true,
-        videoUrl: `/uploads/clips/${clipId}_captioned_${captionStyle}.mp4?v=${Date.now()}`,
+        videoUrl: `/uploads/clips/${clipId}_captioned_${captionStyle}${ovKey}.mp4?v=${Date.now()}`,
         cached: true,
         isReal: clip.hasRealCaptions || false,
         language: clip.language || session.videoInfo?.language || "english",
@@ -1688,8 +1810,8 @@ app.post("/api/add-captions/:clipId", async (req, res) => {
         
         // Groq title updates removed as requested
 
-        console.log(`[captions] Burning ${clipId} | lang: ${currentClipLang} | style: ${captionStyle} | font: ${selectedFont || "default"} | segs: ${segs.length}`)
-        await burnCaptionsAss(src, dest, segs, currentClipLang, captionStyle, selectedFont)
+        console.log(`[captions] Burning ${clipId} | lang: ${currentClipLang} | style: ${captionStyle} | font: ${selectedFont || "default"} | segs: ${segs.length}${ovKey ? " | custom" : ""}`)
+        await burnCaptionsAss(src, dest, segs, currentClipLang, captionStyle, selectedFont, ov)
 
         if (!(await verifyFile(dest, 0.1)).exists) throw new Error("Caption render failed")
         try { await fs.copyFile(dest, legacyDest) } catch {}

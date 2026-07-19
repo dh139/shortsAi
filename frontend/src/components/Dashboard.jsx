@@ -10,6 +10,7 @@ import {
   SkipBack, SkipForward, Type, Palette,
   LogOut, RefreshCw, History, X, Maximize,
   Link2, ChevronRight, BarChart2, Layers,
+  SlidersHorizontal, Move,
 } from "lucide-react"
 import ExtendCutModal from "./ExtendCutModal"
 import Navbar from "./Navbar"
@@ -44,17 +45,29 @@ const scoreMeta = (n) => {
 }
 
 export const CAPTION_STYLES = {
-  classic:   { id: "classic",   name: "Classic",   preview: "Hello World",       font: "Arial Black",    fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "rgba(0,0,0,0.5)",  description: "Clean white text, purple highlight" },
-  neon:      { id: "neon",      name: "Neon",      preview: "Hello World",       font: "Impact",         fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Bold Impact with neon pink highlight" },
-  tiktok:    { id: "tiktok",    name: "TikTok",    preview: "Hello World",       font: "Montserrat",     fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#ec4899", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(0,0,0,0.75)", description: "TikTok-style centered captions" },
-  minimal:   { id: "minimal",   name: "Minimal",   preview: "Hello World",       font: "Helvetica Neue", fontSize: 68, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "line", bold: false, bgBox: false, bgColor: "transparent",      description: "Clean, elegant, no highlights" },
-  fire:      { id: "fire",      name: "🔥 Fire",   preview: "Hello World",       font: "Arial Black",    fontSize: 88, primaryColor: "#FFF176", highlightColor: "#ec4899", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Fiery pink-orange palette" },
-  hindi:     { id: "hindi",     name: "Hindi",     preview: "नमस्ते",            font: "Noto Sans",      fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Noto Sans for Devanagari script" },
-  hormozi:   { id: "hormozi",   name: "Hormozi",   preview: "VIRAL SHORTS",      font: "Impact",         fontSize: 92, primaryColor: "#FFFF00", highlightColor: "#00FF00", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Alex Hormozi viral yellow/green style" },
-  aesthetic: { id: "aesthetic", name: "Aesthetic", preview: "Pure Vibes",        font: "Montserrat",     fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#D8B4FE", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(0,0,0,0.7)", description: "Montserrat with violet glass box" },
-  cyberpunk: { id: "cyberpunk", name: "Cyberpunk", preview: "CYBER PUNK",        font: "Arial Black",    fontSize: 88, primaryColor: "#00FFFF", highlightColor: "#FF00FF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Cyan & electric hot pink style" },
-  drktalks:  { id: "drktalks",  name: "DRK Talks", preview: "Paise Nahi Lagte",  font: "Poppins",        fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#00D2FF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Vibrant cyan active word with white text" },
-  pill:      { id: "pill",      name: "Pill Style", preview: "Pill",             font: "Outfit",         fontSize: 72, primaryColor: "#FFFFFF", highlightColor: "#8b5cf6", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(0,0,0,0.6)", description: "Modern single-word rounded pill background" },
+  // ── Premium preset library (21 styles) ─────────────────────────────────────
+  hormozi1:  { id: "hormozi1",  name: "HORMOZI 1",  preview: "HORMOZI 1",         font: "Impact",         fontSize: 94, primaryColor: "#FFFFFF", highlightColor: "#00E676", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "White bold with green active word" },
+  hormozi2:  { id: "hormozi2",  name: "HORMOZI 2",  preview: "HORMOZI 2",         font: "Impact",         fontSize: 94, primaryColor: "#FFFFFF", highlightColor: "#FFE600", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "White bold with yellow active word" },
+  beast:     { id: "beast",     name: "BEAST",      preview: "BEAST",             font: "Arial Black",    fontSize: 92, primaryColor: "#FFD400", highlightColor: "#FF3B30", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, italic: true, description: "MrBeast yellow with red pops" },
+  negativa:  { id: "negativa",  name: "Negativa",   preview: "Negativa",          font: "Montserrat",     fontSize: 74, primaryColor: "#FFFFFF", highlightColor: "#B0B0B0", outlineColor: "#000000", position: "bottom", animation: "line", bold: true,  bgBox: true,  bgColor: "rgba(0,0,0,0.85)", description: "Clean white on black card" },
+  cove:      { id: "cove",      name: "Cove",       preview: "Cove",              font: "Poppins",        fontSize: 82, primaryColor: "#FFFFFF", highlightColor: "#9AD0FF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Soft white text with glow" },
+  leon:      { id: "leon",      name: "LEON",       preview: "LEON",              font: "Arial Black",    fontSize: 80, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(230,50,40,0.95)", uppercase: true, description: "Bold white on red block" },
+  laguna:    { id: "laguna",    name: "LAGUNA",     preview: "LAGUNA",            font: "Montserrat",     fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "line", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Big clean uppercase white" },
+  tuba:      { id: "tuba",      name: "Tuba",       preview: "Tuba",              font: "Outfit",         fontSize: 78, primaryColor: "#FFFFFF", highlightColor: "#FFD400", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Friendly rounded white" },
+  splitz:    { id: "splitz",    name: "Splitz",     preview: "Splitz",            font: "Georgia",        fontSize: 80, primaryColor: "#E8A15A", highlightColor: "#F6C177", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      italic: true, description: "Warm serif italic" },
+  aria:      { id: "aria",      name: "Aria",       preview: "Aria",              font: "Poppins",        fontSize: 82, primaryColor: "#FFC93C", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Golden headline text" },
+  stack:     { id: "stack",     name: "Stack",      preview: "Stack",             font: "Montserrat",     fontSize: 80, primaryColor: "#FFFFFF", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(0,0,0,0.55)", uppercase: true, description: "Bold white on soft block" },
+  lume:      { id: "lume",      name: "Lume",       preview: "Lume",              font: "Poppins",        fontSize: 78, primaryColor: "#D9B382", highlightColor: "#F0DCB4", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Muted warm tan" },
+  marca:     { id: "marca",     name: "MARCA",      preview: "MARCA",             font: "Arial Black",    fontSize: 78, primaryColor: "#111111", highlightColor: "#111111", outlineColor: "#FFD400", position: "bottom", animation: "word", bold: true,  bgBox: true,  bgColor: "rgba(255,214,0,0.95)", uppercase: true, description: "Dark text on yellow marker" },
+  canto:     { id: "canto",     name: "Canto",      preview: "Canto",             font: "Georgia",        fontSize: 80, primaryColor: "#F0E6D2", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "line", bold: false, bgBox: false, bgColor: "transparent",      italic: true, description: "Elegant cream serif" },
+  silk:      { id: "silk",      name: "Silk",       preview: "Silk",              font: "Poppins",        fontSize: 80, primaryColor: "#34D5C8", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Smooth teal text" },
+  slash:     { id: "slash",     name: "SLASH",      preview: "SLASH",             font: "Arial Black",    fontSize: 86, primaryColor: "#FF3D9A", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Bold magenta punch" },
+  dense:     { id: "dense",     name: "Dense",      preview: "Dense",             font: "Arial Black",    fontSize: 90, primaryColor: "#B6FF3C", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Heavy lime green" },
+  open:      { id: "open",      name: "Open",       preview: "Open",              font: "Montserrat",     fontSize: 82, primaryColor: "#2FD891", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Fresh green outline" },
+  vibe:      { id: "vibe",      name: "Vibe",       preview: "Vibe",              font: "Poppins",        fontSize: 84, primaryColor: "#34D058", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      description: "Energetic green" },
+  rise:      { id: "rise",      name: "Rise",       preview: "Rise",              font: "Montserrat",     fontSize: 84, primaryColor: "#FFC01E", highlightColor: "#FFFFFF", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Rising gold" },
+  prism:     { id: "prism",     name: "PRISM",      preview: "PRISM",             font: "Poppins",        fontSize: 84, primaryColor: "#B98CFF", highlightColor: "#FF7AD9", outlineColor: "#000000", position: "bottom", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Violet-to-pink gradient pops" },
+  pop:       { id: "pop",       name: "Pop",        preview: "3 MAIN STEPS",       font: "Montserrat",     fontSize: 90, primaryColor: "#FFFFFF", highlightColor: "#37B6FF", outlineColor: "#001322", position: "center", animation: "word", bold: true,  bgBox: false, bgColor: "transparent",      uppercase: true, description: "Cyan active word + auto-yellow numbers" },
 }
 
 const SESSIONS_KEY = "clipforge_sessions"
@@ -94,12 +107,17 @@ export default function Dashboard({ user, onLogout }) {
   const [captionStyles, setCaptionStyles]   = useState({})
   const [selectedFonts, setSelectedFonts]   = useState({})
   const [showStylePicker, setShowStylePicker] = useState(null)
-  const [globalCaptionStyle, setGlobalCaptionStyle] = useState("classic")
+  const [globalCaptionStyle, setGlobalCaptionStyle] = useState("hormozi1")
   const [pastClips, setPastClips]           = useState([])
   const [splitScreenMode, setSplitScreenMode]             = useState({})
   const [autoDetectedSplitScreen, setAutoDetectedSplitScreen] = useState({})
   const [fullscreenClip, setFullscreenClip] = useState(null) // custom 9:16 fullscreen
+  const [captionOverrides, setCaptionOverrides] = useState({}) // per-clip { textColor, highlightColor, fontSize, positionX, positionY, letterSpacing, highlightWords }
+  const [editingCaps, setEditingCaps]       = useState(null)   // clipId whose caption editor is open
   const pollRef = useRef(null)
+
+  const setOverride = (clipId, patch) =>
+    setCaptionOverrides(p => ({ ...p, [clipId]: { ...(p[clipId] || {}), ...patch } }))
 
   useEffect(() => { loadPastClipsHistory() }, [user])
 
@@ -258,7 +276,7 @@ export default function Dashboard({ user, onLogout }) {
       return
     }
     try {
-      const r = await axios.post(`${API_BASE}/add-captions/${clipId}`, { sessionId, captionStyle: style, selectedFont: selectedFonts[clipId] || "default" })
+      const r = await axios.post(`${API_BASE}/add-captions/${clipId}`, { sessionId, captionStyle: style, selectedFont: selectedFonts[clipId] || "default", overrides: captionOverrides[clipId] || {} })
       if (r.data.success) {
         setCaptionUrl(p => ({ ...p, [clipId]: r.data.videoUrl }))
         setCaptionState(p => ({ ...p, [clipId]: "ready" }))
@@ -330,6 +348,10 @@ export default function Dashboard({ user, onLogout }) {
           clip={fullscreenClip}
           captionState={captionState[fullscreenClip.id] || "idle"}
           captionVideoUrl={captionUrl[fullscreenClip.id]}
+          captionStyle={captionStyles[fullscreenClip.id] || globalCaptionStyle}
+          overrides={captionOverrides[fullscreenClip.id] || {}}
+          onSetOverride={(patch) => setOverride(fullscreenClip.id, patch)}
+          onApply={() => handleAddCaptions(fullscreenClip.id)}
           onClose={() => setFullscreenClip(null)}
         />
       )}
@@ -596,6 +618,11 @@ export default function Dashboard({ user, onLogout }) {
                     selectedFont={selectedFonts[clip.id] || "default"}
                     onSetCaptionFont={(font) => setSelectedFonts(p => ({ ...p, [clip.id]: font }))}
                     onFullscreen={() => setFullscreenClip(clip)}
+                    overrides={captionOverrides[clip.id] || {}}
+                    onSetOverride={(patch) => setOverride(clip.id, patch)}
+                    onResetOverrides={() => setCaptionOverrides(p => { const n = { ...p }; delete n[clip.id]; return n })}
+                    editing={editingCaps === clip.id}
+                    onToggleEdit={() => setEditingCaps(editingCaps === clip.id ? null : clip.id)}
                   />
                 </div>
               ))}
@@ -670,16 +697,27 @@ export default function Dashboard({ user, onLogout }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Custom 9:16 Fullscreen Player ────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
+function FullscreenPlayer({ clip, captionState, captionVideoUrl, captionStyle, overrides = {}, onSetOverride, onApply, onClose }) {
   const videoRef = useRef(null)
+  const stageRef = useRef(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted]     = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration]       = useState(0)
   const [showUI, setShowUI]           = useState(true)
+  const [posEdit, setPosEdit]         = useState(false)
   const hideTimer = useRef(null)
   const score = clip.viralScore || 0
   const sm    = scoreMeta(score)
+
+  const styleInfo = CAPTION_STYLES[captionStyle] || CAPTION_STYLES.hormozi1
+  const cap = {
+    textColor: styleInfo.primaryColor,
+    fontSize: styleInfo.fontSize,
+    positionX: 50,
+    positionY: styleInfo.position === "center" ? 44 : 79,
+    ...overrides,
+  }
 
   const capReady = captionState === "ready"
   const src = capReady && captionVideoUrl
@@ -694,6 +732,19 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
     if (!videoRef.current) return
     if (playing) videoRef.current.pause()
     else videoRef.current.play().catch(() => {})
+  }
+
+  const onCapDragStart = (e) => {
+    e.stopPropagation(); e.preventDefault()
+    const move = (ev) => {
+      if (!stageRef.current) return
+      const rect = stageRef.current.getBoundingClientRect()
+      const cx = ((ev.clientX - rect.left) / rect.width) * 100
+      const cy = ((ev.clientY - rect.top) / rect.height) * 100
+      onSetOverride?.({ positionX: Math.round(Math.max(6, Math.min(94, cx))), positionY: Math.round(Math.max(6, Math.min(94, cy))) })
+    }
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up) }
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up)
   }
 
   const handleSeek = (e) => {
@@ -738,7 +789,7 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
       </div>
 
       {/* ── 9:16 video container ── */}
-      <div className="relative z-10 h-full flex items-center justify-center" style={{ aspectRatio: "9/16", maxHeight: "100vh", maxWidth: "calc(100vh * 9/16)" }}>
+      <div ref={stageRef} className="relative z-10 h-full flex items-center justify-center overflow-hidden" style={{ aspectRatio: "9/16", maxHeight: "100vh", maxWidth: "calc(100vh * 9/16)" }} onClick={e => e.stopPropagation()}>
 
         <video
           ref={videoRef}
@@ -752,8 +803,23 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
           onEnded={() => { setPlaying(false); setCurrentTime(0) }}
           onTimeUpdate={() => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime) }}
           onLoadedMetadata={() => { if (videoRef.current) setDuration(videoRef.current.duration || 0) }}
-          onClick={togglePlay}
+          onClick={() => { if (!posEdit) togglePlay() }}
         />
+
+        {/* Draggable caption position guide (position-edit mode only) */}
+        {posEdit && (
+          <div
+            onMouseDown={onCapDragStart}
+            className="absolute z-30 cursor-move select-none px-3 py-1.5 rounded-lg border-2 border-dashed border-amber-400/80 bg-black/30 flex items-center gap-1.5"
+            style={{ left: `${cap.positionX}%`, top: `${cap.positionY}%`, transform: "translate(-50%,-50%)", maxWidth: "92%" }}
+            title="Drag to reposition captions"
+          >
+            <Move size={14} className="text-amber-400 flex-shrink-0" />
+            <span style={{ fontFamily: styleInfo.font, fontWeight: styleInfo.bold ? 800 : 500, fontStyle: styleInfo.italic ? "italic" : "normal", color: cap.textColor, fontSize: Math.max(14, Math.round(cap.fontSize / 3.2)), lineHeight: 1, whiteSpace: "nowrap", textShadow: "0 2px 6px #000, 0 0 3px #000", textTransform: styleInfo.uppercase ? "uppercase" : "none" }}>
+              {styleInfo.preview || "Caption"}
+            </span>
+          </div>
+        )}
 
         {/* ── Top bar ── */}
         <div className={`absolute top-0 left-0 right-0 px-4 pt-4 pb-8 transition-opacity duration-300 ${showUI ? "opacity-100" : "opacity-0"}`}
@@ -787,7 +853,7 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
         </div>
 
         {/* ── Center play/pause tap indicator ── */}
-        {!playing && (
+        {!playing && !posEdit && (
           <button
             className="absolute inset-0 flex items-center justify-center"
             onClick={togglePlay}
@@ -811,6 +877,17 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
             <input type="range" className="absolute inset-0 w-full opacity-0 cursor-pointer" min="0" max="100" step="0.1" value={pct} onChange={handleSeek} onClick={e => e.stopPropagation()} />
           </div>
 
+          {/* Caption position editor (toggle with the Move button) */}
+          {onSetOverride && posEdit && (
+            <div className="flex items-center gap-2 mb-3 bg-black/50 border border-amber-400/25 rounded-xl px-3 py-2" onClick={e => e.stopPropagation()}>
+              <Move size={12} className="text-amber-400 flex-shrink-0" />
+              <span className="text-[10px] font-bold text-white/50 whitespace-nowrap">Height</span>
+              <input type="range" min="6" max="94" value={cap.positionY} onChange={e => onSetOverride({ positionY: Number(e.target.value) })} className="flex-1 accent-amber-400 h-1" />
+              <span className="text-[10px] font-mono text-white/50 w-9 text-right">{cap.positionY}%</span>
+              <button onClick={onApply} className="px-3 py-1 rounded-lg bg-amber-400 text-[#0A0A0B] text-[11px] font-black hover:bg-amber-300 transition-all whitespace-nowrap">Apply</button>
+            </div>
+          )}
+
           {/* Controls row */}
           <div className="flex items-center justify-between" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-2">
@@ -827,6 +904,11 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
             </div>
 
             <div className="flex items-center gap-2">
+              {onSetOverride && (
+                <button className={`w-9 h-9 flex items-center justify-center rounded-full border transition-all ${posEdit ? "bg-amber-400 text-[#0A0A0B] border-amber-400" : "bg-white/10 hover:bg-white/18 text-white border-transparent"}`} onClick={() => setPosEdit(v => !v)} title="Move captions">
+                  <Move size={15} />
+                </button>
+              )}
               <button className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/18 text-white transition-all" onClick={() => { if (videoRef.current) { videoRef.current.muted = !muted; setMuted(!muted) } }}>
                 {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
               </button>
@@ -853,8 +935,8 @@ function FullscreenPlayer({ clip, captionState, captionVideoUrl, onClose }) {
 function CaptionStylePicker({ currentStyle, onSelect, onClose }) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md" onClick={onClose}>
-      <div className="w-full max-w-[500px] max-h-[80vh] bg-[#0E0E10] border border-white/[0.09] rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+      <div className="w-full max-w-[500px] max-h-[80vh] flex flex-col bg-[#0E0E10] border border-white/[0.09] rounded-2xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-amber-400/10 border border-amber-400/20 flex items-center justify-center">
               <Palette size={13} className="text-amber-400" />
@@ -865,7 +947,7 @@ function CaptionStylePicker({ currentStyle, onSelect, onClose }) {
             <X size={14} />
           </button>
         </div>
-        <div className="overflow-y-auto p-4 grid grid-cols-2 gap-2.5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 grid grid-cols-2 gap-2.5">
           {Object.values(CAPTION_STYLES).map(style => (
             <button key={style.id} onClick={() => onSelect(style.id)} className={`relative text-left p-3.5 rounded-xl transition-all border ${currentStyle === style.id ? "bg-amber-500/[0.08] border-amber-500/25" : "bg-white/[0.02] border-white/[0.05] hover:border-white/[0.09] hover:bg-white/[0.04]"}`}>
               <div className="bg-black rounded-xl px-2 py-3 flex items-center justify-center mb-2.5 min-h-[44px]">
@@ -891,7 +973,7 @@ function CaptionStylePicker({ currentStyle, onSelect, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Clip Card ─────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, expanded, captionStyle, showStylePicker, onToggleStylePicker, onSetCaptionStyle, onExpand, onDownloadClean, onAddCaptions, onDownloadCaptioned, onEdit, onCopyTitle, selectedFont, onSetCaptionFont, onFullscreen }) {
+function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, expanded, captionStyle, showStylePicker, onToggleStylePicker, onSetCaptionStyle, onExpand, onDownloadClean, onAddCaptions, onDownloadCaptioned, onEdit, onCopyTitle, selectedFont, onSetCaptionFont, onFullscreen, overrides = {}, onSetOverride, onResetOverrides, editing, onToggleEdit }) {
   const videoRef   = useRef(null)
   const [playing, setPlaying]       = useState(false)
   const [muted, setMuted]           = useState(false)
@@ -908,7 +990,20 @@ function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, ex
   const capReady  = captionState === "ready"
   const capLoad   = captionState === "loading"
   const capErr    = captionState === "error"
-  const styleInfo = CAPTION_STYLES[captionStyle] || CAPTION_STYLES.classic
+  const styleInfo = CAPTION_STYLES[captionStyle] || CAPTION_STYLES.hormozi1
+  const paneRef = useRef(null)
+
+  // Effective caption settings = style defaults overlaid with user edits.
+  const capDefaults = {
+    textColor: styleInfo.primaryColor,
+    highlightColor: styleInfo.highlightColor,
+    fontSize: styleInfo.fontSize,
+    positionX: 50,
+    positionY: styleInfo.position === "center" ? 44 : 79,
+    letterSpacing: 1,
+    highlightWords: true,
+  }
+  const cap = { ...capDefaults, ...overrides }
 
   const baseVideoSrc = capReady && captionVideoUrl
     ? (captionVideoUrl.startsWith("http") ? captionVideoUrl : API_ROOT + captionVideoUrl)
@@ -961,7 +1056,7 @@ function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, ex
       onMouseLeave={() => { setHovered(false); setShowControls(true) }}
     >
       {/* ── Video pane ── */}
-      <div className="relative bg-black cursor-pointer overflow-hidden" style={{ aspectRatio: "9/16", maxHeight: 320 }} onMouseMove={autoHideControls} onClick={togglePlay}>
+      <div ref={paneRef} className="relative bg-black cursor-pointer overflow-hidden" style={{ aspectRatio: "9/16", maxHeight: 320 }} onMouseMove={autoHideControls} onClick={togglePlay}>
         <video
           key={videoKey} ref={videoRef} src={baseVideoSrc}
           poster={clip.thumbnail?.startsWith("http") ? clip.thumbnail : API_ROOT + clip.thumbnail}
@@ -1073,6 +1168,40 @@ function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, ex
           </div>
         )}
 
+        {/* AI Description */}
+        {clip.description && (
+          <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-[9px] font-black tracking-widest uppercase text-emerald-400/60">
+                <Sparkles size={9} /> AI Description
+              </div>
+              <button onClick={() => onCopyTitle(clip.description, `${clip.id}-desc`)} className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-lg bg-white/[0.03] hover:bg-white/[0.08] text-white/20 hover:text-emerald-400 transition-all">
+                {copiedId === `${clip.id}-desc` ? <Check size={9} className="text-emerald-400" /> : <Copy size={9} />}
+              </button>
+            </div>
+            <p className="text-[11px] text-white/55 leading-snug">{clip.description}</p>
+          </div>
+        )}
+
+        {/* AI Hashtags */}
+        {clip.hashtags?.length > 0 && (
+          <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-[9px] font-black tracking-widest uppercase text-sky-400/60">
+                <Sparkles size={9} /> Hashtags
+              </div>
+              <button onClick={() => onCopyTitle(clip.hashtags.map(h => `#${h}`).join(" "), `${clip.id}-tags`)} className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-lg bg-white/[0.03] hover:bg-white/[0.08] text-white/20 hover:text-sky-400 transition-all">
+                {copiedId === `${clip.id}-tags` ? <Check size={9} className="text-emerald-400" /> : <Copy size={9} />}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {clip.hashtags.map((h, i) => (
+                <span key={i} className="text-[10px] font-semibold text-sky-400/70 bg-sky-400/[0.06] border border-sky-400/12 rounded-md px-1.5 py-0.5">#{h}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Captions section */}
         <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3">
           <div className="flex items-center justify-between mb-2.5">
@@ -1080,10 +1209,63 @@ function ClipCard({ clip, captionState, captionVideoUrl, dlLoading, copiedId, ex
               <Captions size={9} /> Captions
               <span className="text-white/15 normal-case font-medium ml-1">{clip.hasRealCaptions ? "· Whisper ✅" : "· placeholder"}</span>
             </div>
-            <button onClick={onToggleStylePicker} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.05] text-[9px] font-bold text-white/35 hover:text-white/60 transition-all">
-              <Palette size={8} /> {styleInfo.name}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button onClick={onToggleStylePicker} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.05] text-[9px] font-bold text-white/35 hover:text-white/60 transition-all">
+                <Palette size={8} /> {styleInfo.name}
+              </button>
+              <button onClick={onToggleEdit} className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[9px] font-bold transition-all ${editing ? "bg-amber-400/12 border-amber-400/25 text-amber-400" : "bg-white/[0.03] hover:bg-white/[0.07] border-white/[0.05] text-white/35 hover:text-white/60"}`}>
+                <SlidersHorizontal size={8} /> Edit
+              </button>
+            </div>
           </div>
+
+          {/* ── Edit Captions panel ── */}
+          {editing && (
+            <div className="bg-black/30 border border-white/[0.06] rounded-xl p-3 mb-2.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-black tracking-widest uppercase text-amber-400/70 flex items-center gap-1"><SlidersHorizontal size={9} /> Customize · drag position in fullscreen</span>
+                <button onClick={onResetOverrides} className="text-[9px] font-bold text-white/30 hover:text-white/70 flex items-center gap-1"><RotateCcw size={8} /> Reset</button>
+              </div>
+
+              {/* Colors */}
+              <div className="flex gap-2">
+                <label className="flex-1 flex items-center justify-between gap-2 bg-white/[0.03] border border-white/[0.05] rounded-lg px-2 py-1.5">
+                  <span className="text-[10px] font-semibold text-white/40">Text</span>
+                  <input type="color" value={cap.textColor} onChange={e => onSetOverride({ textColor: e.target.value })} className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" />
+                </label>
+                <label className="flex-1 flex items-center justify-between gap-2 bg-white/[0.03] border border-white/[0.05] rounded-lg px-2 py-1.5">
+                  <span className="text-[10px] font-semibold text-white/40">Highlight</span>
+                  <input type="color" value={cap.highlightColor} onChange={e => onSetOverride({ highlightColor: e.target.value })} className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" />
+                </label>
+              </div>
+
+              {/* Sliders */}
+              {[
+                { key: "fontSize",      label: "Size",     min: 48,  max: 140, val: cap.fontSize,      suffix: "px" },
+                { key: "letterSpacing", label: "Spacing",  min: 0,   max: 12,  val: cap.letterSpacing, suffix: "" },
+              ].map(s => (
+                <div key={s.key} className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold text-white/40 w-14">{s.label}</span>
+                  <input type="range" min={s.min} max={s.max} value={s.val} onChange={e => onSetOverride({ [s.key]: Number(e.target.value) })} className="flex-1 accent-amber-400 h-1" />
+                  <span className="text-[10px] font-mono text-white/50 w-12 text-right">{s.val}{s.suffix}</span>
+                </div>
+              ))}
+
+              {/* Highlight words toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-white/40">Highlight active word</span>
+                <button onClick={() => onSetOverride({ highlightWords: !cap.highlightWords })} className={`relative w-9 h-5 rounded-full transition-colors ${cap.highlightWords ? "bg-amber-400" : "bg-white/15"}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${cap.highlightWords ? "left-4" : "left-0.5"}`} />
+                </button>
+              </div>
+
+              {captionState === "ready" && (
+                <button onClick={onAddCaptions} className="w-full py-2 rounded-lg bg-amber-400/12 border border-amber-400/25 text-amber-400 text-[11px] font-bold hover:bg-amber-400/20 transition-all flex items-center justify-center gap-1.5">
+                  <RefreshCw size={11} /> Apply changes
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-1 text-[9px] font-bold text-white/20 uppercase tracking-wider">
