@@ -1,19 +1,12 @@
 /**
- * downloader.js  v8
+ * downloader.js  v10
  *
- * CHANGES FROM v7:
- * ─────────────────────────────────────────────────────────────────────────────
- * 1. STRATEGY ORDER CHANGED: Standard web (previously strategy 3) now runs FIRST
- *    because it is the most reliably working strategy. web_creator follows as fallback.
- *
- * Strategy order:
- *   1. Standard web 1080p (mp4 + m4a)   ← was strategy 3, most reliable
- *   2. Standard web wide                ← new broad fallback
- *   3. web_creator 1080p                ← was strategy 1
- *   4. web_creator wide                 ← was strategy 2
- *   5. ios + missing_pot                ← was strategy 4
- *   6. 720p                             ← was strategy 5
- *   7. best available                   ← last resort
+ * Quality priority (per product requirement):
+ *   1. 1080p minimum — highest available wins (4K/1440p/1080p when offered)
+ *   2. If 1080p not offered → 720p
+ *   3. Last resort → best available
+ * v10: HLS-aware `bv*` selectors (SABR-only experiment proof), no pinned
+ *      player clients on strategy 1, resumable fragments (no --no-part).
  */
 
 const { spawn, execSync } = require("child_process")
@@ -45,10 +38,14 @@ const findYtDlpBinary = () => {
     console.warn("[dl] Dynamic python Scripts search failed:", e.message)
   }
 
+  // Prefer the repo-local yt-dlp.exe (usually newest, e.g. 2026.x) over the
+  // npm-bundled one (often months older → "not available on this app").
   const all = [
+    path.resolve(`yt-dlp${exe}`),
+    path.resolve(__dirname, `yt-dlp${exe}`),
     ...pipDirs.map(d => path.join(d, `yt-dlp${exe}`)),
     path.resolve("node_modules", "youtube-dl-exec", "bin", `yt-dlp${exe}`),
-    path.resolve(`yt-dlp${exe}`),
+    path.resolve(__dirname, "node_modules", "youtube-dl-exec", "bin", `yt-dlp${exe}`),
     `yt-dlp${exe}`,
   ]
   for (const c of all) {
@@ -102,7 +99,16 @@ const ensureMp4 = (src, dst) =>
     ffmpeg(src).output(dst)
       .outputOptions(["-c copy", "-movflags +faststart"])
       .on("end", () => { fs.unlink(src).catch(() => {}); resolve() })
-      .on("error", reject)
+      .on("error", () => {
+        // VP9/webm can't stream-copy into mp4 → re-encode audio, keep video.
+        console.log(`[dl] Remux failed, re-encoding → .mp4`)
+        ffmpeg(src).output(dst)
+          .videoCodec("libx264").audioCodec("aac")
+          .outputOptions(["-preset", "superfast", "-crf", "23", "-movflags", "+faststart"])
+          .on("end", () => { fs.unlink(src).catch(() => {}); resolve() })
+          .on("error", reject)
+          .run()
+      })
       .run()
   })
 
@@ -110,14 +116,40 @@ const runYtDlp = (binary, args, timeoutMs = 2_000_000) =>
   new Promise((resolve, reject) => {
     console.log(`[dl] CMD: ${path.basename(binary)} ${args.join(" ")}\n`)
     const proc = spawn(binary, args, { stdio: ["ignore", "pipe", "pipe"] })
-    const log  = d => d.toString().split("\n").map(l => l.trim()).filter(Boolean)
-                       .forEach(l => console.log(`[yt-dlp] ${l}`))
+    let done = false
+    // Real-progress tracking — "Retrying…" storms are NOT progress. This is
+    // what catches the network-stall hang (frag 207/1045 stuck for 30+ min
+    // with repeated "Read timed out"). When nothing advances for STALL_MS,
+    // kill the attempt; the strategy loop keeps fragments so the next
+    // strategy resumes instead of crawling forever.
+    const STALL_MS = 5 * 60 * 1000
+    const lastProg = { t: Date.now(), frag: 0, pct: 0 }
+    const timer = setTimeout(() => { try { proc.kill("SIGKILL") } catch {} ; finish("timeout") }, timeoutMs)
+    const poll = setInterval(() => {
+      if (!done && Date.now() - lastProg.t > STALL_MS) {
+        console.warn(`\n[dl] ⏰ Stall watchdog: no download progress for ${STALL_MS / 60000} min — killing attempt, next strategy resumes`)
+        try { proc.kill("SIGKILL") } catch {}
+        finish("stalled")
+      }
+    }, 20_000)
+    const finish = (v) => {
+      if (done) return
+      done = true
+      clearTimeout(timer); clearInterval(poll)
+      resolve(v)
+    }
+    const log = d => d.toString().split("\n").map(l => l.trim()).filter(Boolean).forEach(l => {
+      console.log(`[yt-dlp] ${l}`)
+      const fm = l.match(/frag\s+(\d+)\//)
+      const pm = l.match(/(\d+(?:\.\d+)?)%\s+of/)
+      if (fm) { const f = parseInt(fm[1], 10); if (f > lastProg.frag) { lastProg.frag = f; lastProg.t = Date.now() } }
+      if (pm) { const p = parseFloat(pm[1]); if (p > lastProg.pct) { lastProg.pct = p; lastProg.t = Date.now() } }
+    })
     proc.stdout.on("data", log)
     proc.stderr.on("data", log)
-    const timer = setTimeout(() => { proc.kill("SIGKILL"); resolve("timeout") }, timeoutMs)
-    proc.on("close",  code => { clearTimeout(timer); console.log(`[dl] exit: ${code}`); resolve(code) })
+    proc.on("close",  code => { console.log(`[dl] exit: ${code}`); finish(code) })
     proc.on("error",  err  => {
-      clearTimeout(timer)
+      done = true; clearTimeout(timer); clearInterval(poll)
       if (err.code === "ENOENT") reject(new Error("yt-dlp not found – run: pip install yt-dlp"))
       else reject(err)
     })
@@ -132,94 +164,67 @@ const downloadVideo = async (url, finalMp4Path, { onProgress } = {}) => {
   const safeUrl = cleanUrl(url)
 
   console.log(`\n[dl] ═══════════════════════════════════════`)
-  console.log(`[dl] v8 — Standard web strategy first`)
+  console.log(`[dl] v11 — 1080p → 720p → best (NEVER 4K/1440p) + stall watchdog`)
   console.log(`[dl] URL: ${safeUrl}`)
   await fs.mkdir(dir, { recursive: true })
 
   // ── Check if aria2c is available ──────────────────────────────────────────
   let useAria2c = false
-  try {
-    execSync("aria2c --version", { stdio: "ignore" })
+  let aria2Path = "aria2c"
+  const localAria2 = path.join(__dirname, "aria2c.exe")
+  if (fsSync.existsSync(localAria2)) {
     useAria2c = true
-    console.log("[dl] ✅ aria2c found — using 16-connection download")
-  } catch {
-    console.log("[dl] aria2c not found — using yt-dlp built-in (install aria2 for faster downloads)")
+    aria2Path = localAria2
+    console.log(`[dl] ✅ aria2c found at ${localAria2} — using 16-connection download`)
+  } else {
+    try {
+      execSync("aria2c --version", { stdio: "ignore" })
+      useAria2c = true
+      console.log("[dl] ✅ aria2c found in PATH — using 16-connection download")
+    } catch {
+      console.log("[dl] aria2c not found — using yt-dlp built-in")
+    }
   }
 
-  // Base flags — speed optimized
+  // Base flags — speed optimized (all valid for yt-dlp; no --prefer-free-extensions)
+  // NOTE: no --no-part → fragments are kept so a failed strategy resumes
+  // instead of restarting from 0 (fixes the 1.59GB → 9.38GB restart).
   const base = [
     "--no-playlist",
-    "--retries", "5",
-    "--fragment-retries", "5",
-    "--concurrent-fragments", "16",
+    "--retries", "10",
+    "--fragment-retries", "10",
+    "--concurrent-fragments", "24",
     "--throttled-rate", "100K",
     "--buffer-size", "32K",
     "--http-chunk-size", "10M",
     "--skip-unavailable-fragments",
     "--no-check-certificate",
-    "--no-part",
     "--merge-output-format", "mp4",
+    "--format-sort", "res,fps,ext:mp4:m4a",
+    "--js-runtimes", "node",
     "-o", tpl,
     ...(useAria2c
-      ? ["--downloader", "aria2c", "--downloader-args", "aria2c:-x16 -k1M -j16 --max-connection-per-server=16"]
+      ? ["--downloader", aria2Path, "--downloader-args", "aria2c:-x16 -k1M -j16 --max-connection-per-server=16"]
       : []),
   ]
 
-  // ── STRATEGY ORDER — High quality (1080p/1440p/4K+) standard web is FIRST ──────────
+  // ── STRATEGY ORDER — user-locked: 1080p → 720p → best. NEVER 4K/1440p ──────
+  // Exact-height selectors (`[height=1080]`) make it impossible to pick a 4K
+  // or 1440p format (that is what pulled an 11.6GiB download on gHQo3UafM54).
+  // `bv*` also matches HLS (m3u8) formats — under YouTube's SABR-only
+  // experiment the ONLY 1080p formats are m3u8 ones. Strategies 1–2 do NOT pin
+  // player clients broadly: pinned android/ios lists came back with only
+  // format 18 (360p), while yt-dlp's default client list solves the JS
+  // challenge and returns the 1080p HLS formats (proven: "616+140").
+  // Fallback stays capped at ≤720p — "any lower" is fine, never higher.
+  const F1080    = "bestvideo[height=1080]+bestaudio[ext=m4a]/bestvideo*[height=1080]+bestaudio/[height=1080]/best[height=1080]"
+  const F720     = "bestvideo[height=720]+bestaudio[ext=m4a]/bestvideo*[height=720]+bestaudio/[height=720]/best[height=720]"
+  const FALLBACK = "bestvideo*[height<=720]+bestaudio/best[height<=720]/bestvideo*+bestaudio/best"
   const strategies = [
-    // STRATEGY 1: Standard web — highest quality (4K, 1440p, 1080p) MP4+M4A
-    {
-      label: "highest quality standard web (mp4)",
-      args: [
-        ...base,
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 2: Standard web — wide format selector (highest quality)
-    {
-      label: "highest quality standard web (wide)",
-      args: [
-        ...base,
-        "-f", "bestvideo+bestaudio/best",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 3: web_creator — highest quality MP4+M4A
-    {
-      label: "highest quality web_creator (mp4)",
-      args: [
-        ...base,
-        "--extractor-args", "youtube:player_client=web_creator",
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 4: web_creator wide (highest quality)
-    {
-      label: "highest quality web_creator (wide)",
-      args: [
-        ...base,
-        "--extractor-args", "youtube:player_client=web_creator",
-        "-f", "bestvideo+bestaudio/best",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 5: ios + missing_pot (highest quality)
-    {
-      label: "highest quality ios+missing_pot",
-      args: [
-        ...base,
-        "--extractor-args", "youtube:player_client=ios,formats=missing_pot",
-        "-f", "bestvideo+bestaudio/best",
-        safeUrl,
-      ],
-    },
-    // STRATEGY 6: Fallback - any best available format
-    {
-      label: "best available fallback",
-      args: [...base, "-f", "best", safeUrl],
-    },
+    { label: "1080p (default clients, HLS-proof)", args: [...base, "-f", F1080, safeUrl] },
+    { label: "1080p (web_safari,web clients)",     args: [...base, "--extractor-args", "youtube:player_client=web_safari,web", "-f", F1080, safeUrl] },
+    { label: "720p (default clients)",             args: [...base, "-f", F720, safeUrl] },
+    { label: "best available (≤720 preferred)",    args: [...base, "-f", FALLBACK, safeUrl] },
   ]
 
   for (let i = 0; i < strategies.length; i++) {
@@ -227,10 +232,13 @@ const downloadVideo = async (url, finalMp4Path, { onProgress } = {}) => {
     emit(`⬇️ ${s.label}…`, 5 + i * 2)
     console.log(`\n[dl] ── Strategy ${i+1}/${strategies.length}: ${s.label} ──`)
 
-    await runYtDlp(binary, s.args, 2_000_000)
+    const exitCode = await runYtDlp(binary, s.args, 2_000_000)
 
     const downloaded = await findDownloadedFile(dir, stem)
     if (!downloaded) { console.warn(`[dl] No file after strategy ${i+1}`); continue }
+    // Only accept a file if yt-dlp exited cleanly — a mid-download kill leaves a
+    // partial .mp4 that must not be treated as success (would cause a restart anyway).
+    if (exitCode !== 0) console.warn(`[dl] Strategy ${i+1} exited ${exitCode} — file may be partial, verifying…`)
 
     try {
       if (downloaded !== finalMp4Path) await ensureMp4(downloaded, finalMp4Path)
@@ -242,12 +250,21 @@ const downloadVideo = async (url, finalMp4Path, { onProgress } = {}) => {
         continue
       }
 
-      const mb           = Math.round(stat.size / 1048576)
-      const qualityGuess = mb > 200 ? "1080p" : mb > 80 ? "720p" : "360p"
+      const mb = Math.round(stat.size / 1048576)
+      // Probe actual resolution — never guess from file size.
+      const probe = await new Promise(resolve => {
+        ffmpeg.ffprobe(finalMp4Path, (e, meta) => {
+          if (e) return resolve(null)
+          const vs = (meta?.streams || []).find(s => s.codec_type === "video")
+          resolve(vs ? { w: vs.width, h: vs.height } : null)
+        })
+      }).catch(() => null)
+      const h = probe?.h || 0
+      const qualityGuess = h >= 2160 ? "4K" : h >= 1440 ? "1440p" : h >= 1080 ? "1080p" : h >= 720 ? "720p" : h > 0 ? `${h}p` : "1080p"
       console.log(`\n✅ Download success – ${s.label}`)
-      console.log(`✅ File: ${mb} MB (~${qualityGuess})\n`)
+      console.log(`✅ File: ${mb} MB (${probe ? `${probe.w}x${probe.h}` : "?"} ~${qualityGuess})\n`)
       emit(`✅ Downloaded ${mb} MB (${qualityGuess})`, 20)
-      return { exists: true, size: mb, quality: qualityGuess }
+      return { exists: true, size: mb, quality: qualityGuess, width: probe?.w, height: probe?.h }
     } catch (err) {
       console.warn(`[dl] Post-process error: ${err.message}`)
       await fs.unlink(finalMp4Path).catch(() => {})

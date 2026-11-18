@@ -1,14 +1,15 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
+.pnp
+.pnp.js
 
-# next.js
+# production & build
+dist/
+build/
 /.next/
 /out/
-
-# production
-/build
 
 # debug
 npm-debug.log*
@@ -17,6 +18,8 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files
+.env
+.env*.local
 .env*
 
 # vercel
@@ -25,3 +28,24 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# media & uploaded files
+uploads/
+backend/uploads/*
+!backend/uploads/sessions.json
+*.mp4
+*.webm
+*.part
+*.ytdl
+
+# scratch & test scripts
+backend/ref*
+backend/test_*
+backend/whitestair_bundle.js
+backend/whitestair_index.html
+backend/server_backup.js
+backend/inspect_*
+backend/fetch_*
+backend/scrape_*
+backend/find_jsx.js
+backend/list_routes.js

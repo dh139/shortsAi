@@ -1,0 +1,891 @@
+{
+  "generatedAt": "2026-11-15T07:27:50.034Z",
+  "families": {
+    "Alex Brush": {
+      "family": "Alex Brush",
+      "weights": {
+        "400": "AlexBrush-400.ttf"
+      },
+      "files": [
+        "AlexBrush-400.ttf",
+        "AlexBrush-Regular.ttf"
+      ]
+    },
+    "Alfa Slab One": {
+      "family": "Alfa Slab One",
+      "weights": {
+        "400": "AlfaSlabOne-400.ttf"
+      },
+      "files": [
+        "AlfaSlabOne-400.ttf",
+        "AlfaSlabOne-Regular.ttf"
+      ]
+    },
+    "Allura": {
+      "family": "Allura",
+      "weights": {
+        "400": "Allura-400.ttf"
+      },
+      "files": [
+        "Allura-400.ttf",
+        "Allura-Regular.ttf"
+      ]
+    },
+    "Amatic SC": {
+      "family": "Amatic SC",
+      "weights": {
+        "400": "AmaticSC-400.ttf",
+        "700": "AmaticSC-700.ttf"
+      },
+      "files": [
+        "AmaticSC-400.ttf",
+        "AmaticSC-700.ttf",
+        "AmaticSC-Regular.ttf"
+      ]
+    },
+    "Anton": {
+      "family": "Anton",
+      "weights": {
+        "400": "Anton-400.ttf"
+      },
+      "files": [
+        "Anton-400.ttf",
+        "Anton-Regular.ttf"
+      ]
+    },
+    "Archivo Black": {
+      "family": "Archivo Black",
+      "weights": {
+        "400": "ArchivoBlack-400.ttf"
+      },
+      "files": [
+        "ArchivoBlack-400.ttf",
+        "ArchivoBlack-Regular.ttf"
+      ]
+    },
+    "Bangers": {
+      "family": "Bangers",
+      "weights": {
+        "400": "Bangers-400.ttf"
+      },
+      "files": [
+        "Bangers-400.ttf",
+        "Bangers-Regular.ttf"
+      ]
+    },
+    "Bebas Neue": {
+      "family": "Bebas Neue",
+      "weights": {
+        "400": "BebasNeue-400.ttf"
+      },
+      "files": [
+        "BebasNeue-400.ttf",
+        "BebasNeue-Regular.ttf"
+      ]
+    },
+    "Bodoni Moda": {
+      "family": "Bodoni Moda",
+      "weights": {
+        "400": "BodoniModa-400.ttf",
+        "500": "BodoniModa-500.ttf",
+        "600": "BodoniModa-600.ttf",
+        "700": "BodoniModa-700.ttf",
+        "800": "BodoniModa-800.ttf",
+        "900": "BodoniModa-900.ttf"
+      },
+      "files": [
+        "BodoniModa-400.ttf",
+        "BodoniModa-500.ttf",
+        "BodoniModa-600.ttf",
+        "BodoniModa-700.ttf",
+        "BodoniModa-800.ttf",
+        "BodoniModa-900.ttf"
+      ]
+    },
+    "Bricolage Grotesque": {
+      "family": "Bricolage Grotesque",
+      "weights": {
+        "800": "BricolageGrotesque.ttf"
+      },
+      "files": [
+        "BricolageGrotesque.ttf"
+      ]
+    },
+    "Caveat": {
+      "family": "Caveat",
+      "weights": {
+        "400": "Caveat-400.ttf",
+        "500": "Caveat-500.ttf",
+        "600": "Caveat-600.ttf",
+        "700": "Caveat-700.ttf"
+      },
+      "files": [
+        "Caveat-400.ttf",
+        "Caveat-500.ttf",
+        "Caveat-600.ttf",
+        "Caveat-700.ttf"
+      ]
+    },
+    "Chewy": {
+      "family": "Chewy",
+      "weights": {
+        "400": "Chewy-400.ttf"
+      },
+      "files": [
+        "Chewy-400.ttf",
+        "Chewy-Regular.ttf"
+      ]
+    },
+    "Dancing Script": {
+      "family": "Dancing Script",
+      "weights": {
+        "400": "DancingScript-400.ttf",
+        "500": "DancingScript-500.ttf",
+        "600": "DancingScript-600.ttf",
+        "700": "DancingScript-700.ttf"
+      },
+      "files": [
+        "DancingScript-400.ttf",
+        "DancingScript-500.ttf",
+        "DancingScript-600.ttf",
+        "DancingScript-700.ttf"
+      ]
+    },
+    "DM Serif Display": {
+      "family": "DM Serif Display",
+      "weights": {
+        "400": "DMSerifDisplay-400.ttf"
+      },
+      "files": [
+        "DMSerifDisplay-400.ttf",
+        "DMSerifDisplay-Regular.ttf"
+      ]
+    },
+    "Fredoka": {
+      "family": "Fredoka",
+      "weights": {
+        "400": "Fredoka-400.ttf",
+        "500": "Fredoka-500.ttf",
+        "600": "Fredoka-600.ttf",
+        "700": "Fredoka-700.ttf"
+      },
+      "files": [
+        "Fredoka-400.ttf",
+        "Fredoka-500.ttf",
+        "Fredoka-600.ttf",
+        "Fredoka-700.ttf"
+      ]
+    },
+    "Fredoka One": {
+      "family": "Fredoka One",
+      "weights": {
+        "400": "FredokaOne-400.ttf"
+      },
+      "files": [
+        "FredokaOne-400.ttf"
+      ]
+    },
+    "Great Vibes": {
+      "family": "Great Vibes",
+      "weights": {
+        "400": "GreatVibes-400.ttf"
+      },
+      "files": [
+        "GreatVibes-400.ttf",
+        "GreatVibes-Regular.ttf"
+      ]
+    },
+    "Instrument Serif": {
+      "family": "Instrument Serif",
+      "weights": {
+        "400": "InstrumentSerif-400.ttf"
+      },
+      "files": [
+        "InstrumentSerif-400.ttf",
+        "InstrumentSerif-Regular.ttf"
+      ]
+    },
+    "Inter": {
+      "family": "Inter",
+      "weights": {
+        "400": "Inter-400.ttf",
+        "500": "Inter-500.ttf",
+        "600": "Inter-600.ttf",
+        "700": "Inter-700.ttf",
+        "800": "Inter-800.ttf",
+        "900": "Inter-900.ttf"
+      },
+      "files": [
+        "Inter-400.ttf",
+        "Inter-500.ttf",
+        "Inter-600.ttf",
+        "Inter-700.ttf",
+        "Inter-800.ttf",
+        "Inter-900.ttf"
+      ]
+    },
+    "Italianno": {
+      "family": "Italianno",
+      "weights": {
+        "400": "Italianno-400.ttf"
+      },
+      "files": [
+        "Italianno-400.ttf",
+        "Italianno-Regular.ttf"
+      ]
+    },
+    "Josefin Sans": {
+      "family": "Josefin Sans",
+      "weights": {
+        "400": "JosefinSans-400.ttf",
+        "500": "JosefinSans-500.ttf",
+        "600": "JosefinSans-600.ttf",
+        "700": "JosefinSans-700.ttf"
+      },
+      "files": [
+        "JosefinSans-400.ttf",
+        "JosefinSans-500.ttf",
+        "JosefinSans-600.ttf",
+        "JosefinSans-700.ttf"
+      ]
+    },
+    "Kanit": {
+      "family": "Kanit",
+      "weights": {
+        "400": "Kanit-400.ttf",
+        "500": "Kanit-500.ttf",
+        "600": "Kanit-600.ttf",
+        "700": "Kanit-700.ttf",
+        "800": "Kanit-800.ttf",
+        "900": "Kanit-900.ttf"
+      },
+      "files": [
+        "Kanit-400.ttf",
+        "Kanit-500.ttf",
+        "Kanit-600.ttf",
+        "Kanit-700.ttf",
+        "Kanit-800.ttf",
+        "Kanit-900.ttf",
+        "Kanit-Regular.ttf"
+      ]
+    },
+    "Kaushan Script": {
+      "family": "Kaushan Script",
+      "weights": {
+        "400": "KaushanScript-400.ttf"
+      },
+      "files": [
+        "KaushanScript-400.ttf",
+        "KaushanScript-Regular.ttf"
+      ]
+    },
+    "Lato": {
+      "family": "Lato",
+      "weights": {
+        "400": "Lato-400.ttf",
+        "700": "Lato-700.ttf",
+        "900": "Lato-900.ttf"
+      },
+      "files": [
+        "Lato-400.ttf",
+        "Lato-700.ttf",
+        "Lato-900.ttf"
+      ]
+    },
+    "Lobster": {
+      "family": "Lobster",
+      "weights": {
+        "400": "Lobster-400.ttf"
+      },
+      "files": [
+        "Lobster-400.ttf",
+        "Lobster-Regular.ttf"
+      ]
+    },
+    "Luckiest Guy": {
+      "family": "Luckiest Guy",
+      "weights": {
+        "400": "LuckiestGuy-400.ttf"
+      },
+      "files": [
+        "LuckiestGuy-400.ttf",
+        "LuckiestGuy-Regular.ttf"
+      ]
+    },
+    "Merriweather": {
+      "family": "Merriweather",
+      "weights": {
+        "400": "Merriweather-400.ttf",
+        "500": "Merriweather-500.ttf",
+        "600": "Merriweather-600.ttf",
+        "700": "Merriweather-700.ttf",
+        "800": "Merriweather-800.ttf",
+        "900": "Merriweather-900.ttf"
+      },
+      "files": [
+        "Merriweather-400.ttf",
+        "Merriweather-500.ttf",
+        "Merriweather-600.ttf",
+        "Merriweather-700.ttf",
+        "Merriweather-800.ttf",
+        "Merriweather-900.ttf"
+      ]
+    },
+    "Montserrat": {
+      "family": "Montserrat",
+      "weights": {
+        "400": "Montserrat-400.ttf",
+        "500": "Montserrat-500.ttf",
+        "600": "Montserrat-600.ttf",
+        "700": "Montserrat-700.ttf",
+        "800": "Montserrat-800.ttf",
+        "900": "Montserrat-900.ttf"
+      },
+      "files": [
+        "Montserrat-400.ttf",
+        "Montserrat-500.ttf",
+        "Montserrat-600.ttf",
+        "Montserrat-700.ttf",
+        "Montserrat-800.ttf",
+        "Montserrat-900.ttf",
+        "Montserrat-Bold.ttf"
+      ]
+    },
+    "Mynerve": {
+      "family": "Mynerve",
+      "weights": {
+        "400": "Mynerve-400.ttf"
+      },
+      "files": [
+        "Mynerve-400.ttf",
+        "Mynerve-Regular.ttf"
+      ]
+    },
+    "Nunito": {
+      "family": "Nunito",
+      "weights": {
+        "400": "Nunito-400.ttf",
+        "500": "Nunito-500.ttf",
+        "600": "Nunito-600.ttf",
+        "700": "Nunito-700.ttf",
+        "800": "Nunito-800.ttf",
+        "900": "Nunito-900.ttf"
+      },
+      "files": [
+        "Nunito-400.ttf",
+        "Nunito-500.ttf",
+        "Nunito-600.ttf",
+        "Nunito-700.ttf",
+        "Nunito-800.ttf",
+        "Nunito-900.ttf"
+      ]
+    },
+    "Oswald": {
+      "family": "Oswald",
+      "weights": {
+        "400": "Oswald-400.ttf",
+        "500": "Oswald-500.ttf",
+        "600": "Oswald-600.ttf",
+        "700": "Oswald-700.ttf"
+      },
+      "files": [
+        "Oswald-400.ttf",
+        "Oswald-500.ttf",
+        "Oswald-600.ttf",
+        "Oswald-700.ttf"
+      ]
+    },
+    "Outfit": {
+      "family": "Outfit",
+      "weights": {
+        "100": "Outfit-Bold.ttf",
+        "400": "Outfit-400.ttf",
+        "500": "Outfit-500.ttf",
+        "600": "Outfit-600.ttf",
+        "700": "Outfit-700.ttf",
+        "800": "Outfit-800.ttf",
+        "900": "Outfit-900.ttf"
+      },
+      "files": [
+        "Outfit-400.ttf",
+        "Outfit-500.ttf",
+        "Outfit-600.ttf",
+        "Outfit-700.ttf",
+        "Outfit-800.ttf",
+        "Outfit-900.ttf",
+        "Outfit-Bold.ttf"
+      ]
+    },
+    "Pacifico": {
+      "family": "Pacifico",
+      "weights": {
+        "400": "Pacifico-400.ttf"
+      },
+      "files": [
+        "Pacifico-400.ttf",
+        "Pacifico-Regular.ttf"
+      ]
+    },
+    "Passion One": {
+      "family": "Passion One",
+      "weights": {
+        "400": "PassionOne-400.ttf",
+        "700": "PassionOne-700.ttf",
+        "900": "PassionOne-900.ttf"
+      },
+      "files": [
+        "PassionOne-400.ttf",
+        "PassionOne-700.ttf",
+        "PassionOne-900.ttf",
+        "PassionOne-Regular.ttf"
+      ]
+    },
+    "Permanent Marker": {
+      "family": "Permanent Marker",
+      "weights": {
+        "400": "PermanentMarker-400.ttf"
+      },
+      "files": [
+        "PermanentMarker-400.ttf",
+        "PermanentMarker-Regular.ttf"
+      ]
+    },
+    "Playfair Display": {
+      "family": "Playfair Display",
+      "weights": {
+        "400": "PlayfairDisplay-400.ttf",
+        "500": "PlayfairDisplay-500.ttf",
+        "600": "PlayfairDisplay-600.ttf",
+        "700": "PlayfairDisplay-700.ttf",
+        "800": "PlayfairDisplay-800.ttf",
+        "900": "PlayfairDisplay-900.ttf"
+      },
+      "files": [
+        "PlayfairDisplay-400.ttf",
+        "PlayfairDisplay-500.ttf",
+        "PlayfairDisplay-600.ttf",
+        "PlayfairDisplay-700.ttf",
+        "PlayfairDisplay-800.ttf",
+        "PlayfairDisplay-900.ttf"
+      ]
+    },
+    "Plus Jakarta Sans": {
+      "family": "Plus Jakarta Sans",
+      "weights": {
+        "400": "PlusJakartaSans-400.ttf",
+        "500": "PlusJakartaSans-500.ttf",
+        "600": "PlusJakartaSans-600.ttf",
+        "700": "PlusJakartaSans-700.ttf",
+        "800": "PlusJakartaSans-800.ttf"
+      },
+      "files": [
+        "PlusJakartaSans-400.ttf",
+        "PlusJakartaSans-500.ttf",
+        "PlusJakartaSans-600.ttf",
+        "PlusJakartaSans-700.ttf",
+        "PlusJakartaSans-800.ttf"
+      ]
+    },
+    "Poppins": {
+      "family": "Poppins",
+      "weights": {
+        "400": "Poppins-400.ttf",
+        "500": "Poppins-500.ttf",
+        "600": "Poppins-600.ttf",
+        "700": "Poppins-700.ttf",
+        "800": "Poppins-800.ttf",
+        "900": "Poppins-900.ttf"
+      },
+      "files": [
+        "Poppins-400.ttf",
+        "Poppins-500.ttf",
+        "Poppins-600.ttf",
+        "Poppins-700.ttf",
+        "Poppins-800.ttf",
+        "Poppins-900.ttf",
+        "Poppins-Bold.ttf",
+        "Poppins-Regular.ttf"
+      ]
+    },
+    "Righteous": {
+      "family": "Righteous",
+      "weights": {
+        "400": "Righteous-400.ttf"
+      },
+      "files": [
+        "Righteous-400.ttf",
+        "Righteous-Regular.ttf"
+      ]
+    },
+    "Rubik Microbe": {
+      "family": "Rubik Microbe",
+      "weights": {
+        "400": "RubikMicrobe-400.ttf"
+      },
+      "files": [
+        "RubikMicrobe-400.ttf",
+        "RubikMicrobe-Regular.ttf"
+      ]
+    },
+    "Satisfy": {
+      "family": "Satisfy",
+      "weights": {
+        "400": "Satisfy-400.ttf"
+      },
+      "files": [
+        "Satisfy-400.ttf",
+        "Satisfy-Regular.ttf"
+      ]
+    },
+    "Shadows Into Light": {
+      "family": "Shadows Into Light",
+      "weights": {
+        "400": "ShadowsIntoLight-400.ttf"
+      },
+      "files": [
+        "ShadowsIntoLight-400.ttf",
+        "ShadowsIntoLight.ttf"
+      ]
+    },
+    "Shadows Into Light Two": {
+      "family": "Shadows Into Light Two",
+      "weights": {
+        "400": "ShadowsIntoLightTwo-400.ttf"
+      },
+      "files": [
+        "ShadowsIntoLightTwo-400.ttf",
+        "ShadowsIntoLightTwo-Regular.ttf"
+      ]
+    }
+  },
+  "byLower": {
+    "alex brush": {
+      "family": "Alex Brush",
+      "weights": {
+        "400": "AlexBrush-400.ttf"
+      }
+    },
+    "alfa slab one": {
+      "family": "Alfa Slab One",
+      "weights": {
+        "400": "AlfaSlabOne-400.ttf"
+      }
+    },
+    "allura": {
+      "family": "Allura",
+      "weights": {
+        "400": "Allura-400.ttf"
+      }
+    },
+    "amatic sc": {
+      "family": "Amatic SC",
+      "weights": {
+        "400": "AmaticSC-400.ttf",
+        "700": "AmaticSC-700.ttf"
+      }
+    },
+    "anton": {
+      "family": "Anton",
+      "weights": {
+        "400": "Anton-400.ttf"
+      }
+    },
+    "archivo black": {
+      "family": "Archivo Black",
+      "weights": {
+        "400": "ArchivoBlack-400.ttf"
+      }
+    },
+    "bangers": {
+      "family": "Bangers",
+      "weights": {
+        "400": "Bangers-400.ttf"
+      }
+    },
+    "bebas neue": {
+      "family": "Bebas Neue",
+      "weights": {
+        "400": "BebasNeue-400.ttf"
+      }
+    },
+    "bodoni moda": {
+      "family": "Bodoni Moda",
+      "weights": {
+        "400": "BodoniModa-400.ttf",
+        "500": "BodoniModa-500.ttf",
+        "600": "BodoniModa-600.ttf",
+        "700": "BodoniModa-700.ttf",
+        "800": "BodoniModa-800.ttf",
+        "900": "BodoniModa-900.ttf"
+      }
+    },
+    "bricolage grotesque": {
+      "family": "Bricolage Grotesque",
+      "weights": {
+        "800": "BricolageGrotesque.ttf"
+      }
+    },
+    "caveat": {
+      "family": "Caveat",
+      "weights": {
+        "400": "Caveat-400.ttf",
+        "500": "Caveat-500.ttf",
+        "600": "Caveat-600.ttf",
+        "700": "Caveat-700.ttf"
+      }
+    },
+    "chewy": {
+      "family": "Chewy",
+      "weights": {
+        "400": "Chewy-400.ttf"
+      }
+    },
+    "dancing script": {
+      "family": "Dancing Script",
+      "weights": {
+        "400": "DancingScript-400.ttf",
+        "500": "DancingScript-500.ttf",
+        "600": "DancingScript-600.ttf",
+        "700": "DancingScript-700.ttf"
+      }
+    },
+    "dm serif display": {
+      "family": "DM Serif Display",
+      "weights": {
+        "400": "DMSerifDisplay-400.ttf"
+      }
+    },
+    "fredoka": {
+      "family": "Fredoka",
+      "weights": {
+        "400": "Fredoka-400.ttf",
+        "500": "Fredoka-500.ttf",
+        "600": "Fredoka-600.ttf",
+        "700": "Fredoka-700.ttf"
+      }
+    },
+    "fredoka one": {
+      "family": "Fredoka One",
+      "weights": {
+        "400": "FredokaOne-400.ttf"
+      }
+    },
+    "great vibes": {
+      "family": "Great Vibes",
+      "weights": {
+        "400": "GreatVibes-400.ttf"
+      }
+    },
+    "instrument serif": {
+      "family": "Instrument Serif",
+      "weights": {
+        "400": "InstrumentSerif-400.ttf"
+      }
+    },
+    "inter": {
+      "family": "Inter",
+      "weights": {
+        "400": "Inter-400.ttf",
+        "500": "Inter-500.ttf",
+        "600": "Inter-600.ttf",
+        "700": "Inter-700.ttf",
+        "800": "Inter-800.ttf",
+        "900": "Inter-900.ttf"
+      }
+    },
+    "italianno": {
+      "family": "Italianno",
+      "weights": {
+        "400": "Italianno-400.ttf"
+      }
+    },
+    "josefin sans": {
+      "family": "Josefin Sans",
+      "weights": {
+        "400": "JosefinSans-400.ttf",
+        "500": "JosefinSans-500.ttf",
+        "600": "JosefinSans-600.ttf",
+        "700": "JosefinSans-700.ttf"
+      }
+    },
+    "kanit": {
+      "family": "Kanit",
+      "weights": {
+        "400": "Kanit-400.ttf",
+        "500": "Kanit-500.ttf",
+        "600": "Kanit-600.ttf",
+        "700": "Kanit-700.ttf",
+        "800": "Kanit-800.ttf",
+        "900": "Kanit-900.ttf"
+      }
+    },
+    "kaushan script": {
+      "family": "Kaushan Script",
+      "weights": {
+        "400": "KaushanScript-400.ttf"
+      }
+    },
+    "lato": {
+      "family": "Lato",
+      "weights": {
+        "400": "Lato-400.ttf",
+        "700": "Lato-700.ttf",
+        "900": "Lato-900.ttf"
+      }
+    },
+    "lobster": {
+      "family": "Lobster",
+      "weights": {
+        "400": "Lobster-400.ttf"
+      }
+    },
+    "luckiest guy": {
+      "family": "Luckiest Guy",
+      "weights": {
+        "400": "LuckiestGuy-400.ttf"
+      }
+    },
+    "merriweather": {
+      "family": "Merriweather",
+      "weights": {
+        "400": "Merriweather-400.ttf",
+        "500": "Merriweather-500.ttf",
+        "600": "Merriweather-600.ttf",
+        "700": "Merriweather-700.ttf",
+        "800": "Merriweather-800.ttf",
+        "900": "Merriweather-900.ttf"
+      }
+    },
+    "montserrat": {
+      "family": "Montserrat",
+      "weights": {
+        "400": "Montserrat-400.ttf",
+        "500": "Montserrat-500.ttf",
+        "600": "Montserrat-600.ttf",
+        "700": "Montserrat-700.ttf",
+        "800": "Montserrat-800.ttf",
+        "900": "Montserrat-900.ttf"
+      }
+    },
+    "mynerve": {
+      "family": "Mynerve",
+      "weights": {
+        "400": "Mynerve-400.ttf"
+      }
+    },
+    "nunito": {
+      "family": "Nunito",
+      "weights": {
+        "400": "Nunito-400.ttf",
+        "500": "Nunito-500.ttf",
+        "600": "Nunito-600.ttf",
+        "700": "Nunito-700.ttf",
+        "800": "Nunito-800.ttf",
+        "900": "Nunito-900.ttf"
+      }
+    },
+    "oswald": {
+      "family": "Oswald",
+      "weights": {
+        "400": "Oswald-400.ttf",
+        "500": "Oswald-500.ttf",
+        "600": "Oswald-600.ttf",
+        "700": "Oswald-700.ttf"
+      }
+    },
+    "outfit": {
+      "family": "Outfit",
+      "weights": {
+        "100": "Outfit-Bold.ttf",
+        "400": "Outfit-400.ttf",
+        "500": "Outfit-500.ttf",
+        "600": "Outfit-600.ttf",
+        "700": "Outfit-700.ttf",
+        "800": "Outfit-800.ttf",
+        "900": "Outfit-900.ttf"
+      }
+    },
+    "pacifico": {
+      "family": "Pacifico",
+      "weights": {
+        "400": "Pacifico-400.ttf"
+      }
+    },
+    "passion one": {
+      "family": "Passion One",
+      "weights": {
+        "400": "PassionOne-400.ttf",
+        "700": "PassionOne-700.ttf",
+        "900": "PassionOne-900.ttf"
+      }
+    },
+    "permanent marker": {
+      "family": "Permanent Marker",
+      "weights": {
+        "400": "PermanentMarker-400.ttf"
+      }
+    },
+    "playfair display": {
+      "family": "Playfair Display",
+      "weights": {
+        "400": "PlayfairDisplay-400.ttf",
+        "500": "PlayfairDisplay-500.ttf",
+        "600": "PlayfairDisplay-600.ttf",
+        "700": "PlayfairDisplay-700.ttf",
+        "800": "PlayfairDisplay-800.ttf",
+        "900": "PlayfairDisplay-900.ttf"
+      }
+    },
+    "plus jakarta sans": {
+      "family": "Plus Jakarta Sans",
+      "weights": {
+        "400": "PlusJakartaSans-400.ttf",
+        "500": "PlusJakartaSans-500.ttf",
+        "600": "PlusJakartaSans-600.ttf",
+        "700": "PlusJakartaSans-700.ttf",
+        "800": "PlusJakartaSans-800.ttf"
+      }
+    },
+    "poppins": {
+      "family": "Poppins",
+      "weights": {
+        "400": "Poppins-400.ttf",
+        "500": "Poppins-500.ttf",
+        "600": "Poppins-600.ttf",
+        "700": "Poppins-700.ttf",
+        "800": "Poppins-800.ttf",
+        "900": "Poppins-900.ttf"
+      }
+    },
+    "righteous": {
+      "family": "Righteous",
+      "weights": {
+        "400": "Righteous-400.ttf"
+      }
+    },
+    "rubik microbe": {
+      "family": "Rubik Microbe",
+      "weights": {
+        "400": "RubikMicrobe-400.ttf"
+      }
+    },
+    "satisfy": {
+      "family": "Satisfy",
+      "weights": {
+        "400": "Satisfy-400.ttf"
+      }
+    },
+    "shadows into light": {
+      "family": "Shadows Into Light",
+      "weights": {
+        "400": "ShadowsIntoLight-400.ttf"
+      }
+    },
+    "shadows into light two": {
+      "family": "Shadows Into Light Two",
+      "weights": {
+        "400": "ShadowsIntoLightTwo-400.ttf"
+      }
+    }
+  }
+}

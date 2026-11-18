@@ -117,17 +117,29 @@ def main():
     fallback_center = int(src_w * 0.5)
     fallback_left = int(src_w * 0.25)
     fallback_right = int(src_w * 0.75)
+    fallback_y = int(src_h * 0.35)
 
-    # Load Haar cascades
-    frontal_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-    profile_cascade_path = cv2.data.haarcascades + 'haarcascade_profileface.xml'
+    # Load Haar cascades - check multiple locations
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    local_haardir = os.path.join(script_dir, "haarcascades")
+    cv_haardir = getattr(cv2.data, 'haarcascades', '')
+
+    frontal_cascade_path = os.path.join(local_haardir, 'haarcascade_frontalface_default.xml')
+    if not os.path.exists(frontal_cascade_path) and cv_haardir:
+        frontal_cascade_path = os.path.join(cv_haardir, 'haarcascade_frontalface_default.xml')
+
+    profile_cascade_path = os.path.join(local_haardir, 'haarcascade_profileface.xml')
+    if not os.path.exists(profile_cascade_path) and cv_haardir:
+        profile_cascade_path = os.path.join(cv_haardir, 'haarcascade_profileface.xml')
     
     if not os.path.exists(frontal_cascade_path) or not os.path.exists(profile_cascade_path):
         print(json.dumps({
             "success": True,
             "speakerCount": 1,
             "xLeft": fallback_center,
+            "yLeft": fallback_y,
             "xRight": fallback_center,
+            "yRight": fallback_y,
             "motionHistory": [],
             "details": "Haar cascades not found, fallback to center"
         }))
@@ -146,7 +158,7 @@ def main():
             "-ss", str(args.start),
             "-i", video_path,
             "-t", str(args.duration),
-            "-vf", f"fps={fps},scale=320:-2",
+            "-vf", f"fps={fps},scale=640:-2",
             "-q:v", "4",
             "-an",
             os.path.join(temp_dir, "frame_%04d.jpg")
@@ -158,7 +170,9 @@ def main():
                 "success": True,
                 "speakerCount": 1,
                 "xLeft": fallback_center,
+                "yLeft": fallback_y,
                 "xRight": fallback_center,
+                "yRight": fallback_y,
                 "motionHistory": [],
                 "details": f"FFmpeg failed with code {result.returncode}, fallback to center"
             }))
@@ -171,7 +185,9 @@ def main():
                 "success": True,
                 "speakerCount": 1,
                 "xLeft": fallback_center,
+                "yLeft": fallback_y,
                 "xRight": fallback_center,
+                "yRight": fallback_y,
                 "motionHistory": [],
                 "details": "No frames extracted by FFmpeg"
             }))
@@ -180,7 +196,15 @@ def main():
         n_frames = len(files)
         frame_detections = []
         all_cxs = []
+        all_cys = []
+        pair_left_cxs = []
+        pair_left_cys = []
+        pair_right_cxs = []
+        pair_right_cys = []
         
+        # Minimum face width in source pixels (e.g. 110px in 1920x1080)
+        min_face_w = max(50, int(src_w * 0.055))
+
         for idx, filename in enumerate(files):
             file_path = os.path.join(temp_dir, filename)
             frame = cv2.imread(file_path)
@@ -196,26 +220,26 @@ def main():
             # 1. Frontal faces
             frontal_faces = face_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.15,
-                minNeighbors=3,
-                minSize=(30, 30)
+                scaleFactor=1.1,
+                minNeighbors=4,
+                minSize=(28, 28)
             )
             
             # 2. Right profiles
             profile_faces = profile_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.15,
-                minNeighbors=3,
-                minSize=(30, 30)
+                scaleFactor=1.1,
+                minNeighbors=4,
+                minSize=(28, 28)
             )
             
             # 3. Left profiles (flip frame horizontally)
             gray_flipped = cv2.flip(gray, 1)
             flipped_profile_faces_raw = profile_cascade.detectMultiScale(
                 gray_flipped,
-                scaleFactor=1.15,
-                minNeighbors=3,
-                minSize=(30, 30)
+                scaleFactor=1.1,
+                minNeighbors=4,
+                minSize=(28, 28)
             )
             flipped_profile_faces = []
             for (x, y, w, h) in flipped_profile_faces_raw:
@@ -234,6 +258,12 @@ def main():
                 orig_w = int(w / scale)
                 orig_h = int(h / scale)
                 
+                # Filter out tiny noise / background decorations
+                if orig_w < min_face_w:
+                    continue
+                if not ((0.03 * src_w) < orig_cx < (0.97 * src_w)):
+                    continue
+
                 det = {
                     "cx": orig_cx,
                     "cy": orig_cy,
@@ -243,44 +273,65 @@ def main():
                     "t": t_offset
                 }
                 dets.append(det)
-                
-                # Filter out extreme edge noise before clustering
-                if (0.02 * src_w) < orig_cx < (0.98 * src_w):
-                    all_cxs.append(orig_cx)
+                all_cxs.append(orig_cx)
+                all_cys.append(orig_cy)
+
+            # Sort detected faces left-to-right
+            dets.sort(key=lambda d: d["cx"])
+            
+            # Check for simultaneous multi-speaker presence (podcast 2-shot)
+            if len(dets) >= 2:
+                d_left = dets[0]
+                d_right = dets[-1]
+                if (d_right["cx"] - d_left["cx"]) > (0.22 * src_w):
+                    pair_left_cxs.append(d_left["cx"])
+                    pair_left_cys.append(d_left["cy"])
+                    pair_right_cxs.append(d_right["cx"])
+                    pair_right_cys.append(d_right["cy"])
                     
             frame_detections.append(dets)
 
-        # Determine speaker count and centers using 1D K-Means clustering
+        # Determine speaker count and coordinates
         speaker_count = 1
         x_left = fallback_center
+        y_left = fallback_y
         x_right = fallback_center
-        
-        if len(all_cxs) > 0:
+        y_right = fallback_y
+
+        if len(pair_left_cxs) >= 2:
+            # Clear 2-speaker wide shot detected!
+            x_left = int(np.median(pair_left_cxs))
+            y_left = int(np.median(pair_left_cys))
+            x_right = int(np.median(pair_right_cxs))
+            y_right = int(np.median(pair_right_cys))
+            speaker_count = 2
+        elif len(all_cxs) > 0:
             if len(all_cxs) < 5:
-                # Too few detections, treat as 1 speaker centered on median
                 x_left = int(np.median(all_cxs))
+                y_left = int(np.median(all_cys)) if all_cys else fallback_y
                 x_right = x_left
+                y_right = y_left
                 speaker_count = 1
             else:
-                # Cluster X coordinates
                 centers, labels = kmeans_1d(all_cxs, k=2)
                 c1, c2 = centers[0], centers[1]
-                
                 count1 = sum(1 for l in labels if l == 0)
                 count2 = sum(1 for l in labels if l == 1)
                 total = count1 + count2
-                
-                # Check for single speaker collapsing rules
-                min_dist = 0.15 * src_w
-                if (c2 - c1) < min_dist or count1 < 4 or count2 < 4 or (count1 / total) < 0.10 or (count2 / total) < 0.10:
-                    # Single speaker: collapse to median
+                min_dist = 0.18 * src_w
+                if (c2 - c1) < min_dist or count1 < 3 or count2 < 3 or (count1 / total) < 0.12 or (count2 / total) < 0.12:
                     x_left = int(np.median(all_cxs))
+                    y_left = int(np.median(all_cys)) if all_cys else fallback_y
                     x_right = x_left
+                    y_right = y_left
                     speaker_count = 1
                 else:
-                    # Two speakers
                     x_left = int(c1)
                     x_right = int(c2)
+                    c0_cys = [all_cys[i] for i in range(len(all_cys)) if labels[i] == 0]
+                    c1_cys = [all_cys[i] for i in range(len(all_cys)) if labels[i] == 1]
+                    y_left = int(np.median(c0_cys)) if c0_cys else fallback_y
+                    y_right = int(np.median(c1_cys)) if c1_cys else fallback_y
                     speaker_count = 2
 
         # Assign detections to left and right tracks based on cluster proximity
@@ -422,9 +473,11 @@ def main():
             "success": True,
             "speakerCount": speaker_count,
             "xLeft": x_left,
+            "yLeft": y_left,
             "xRight": x_right,
+            "yRight": y_right,
             "motionHistory": motion_history,
-            "details": f"Multi-cascade tracking success. Detected {speaker_count} speakers. Left={x_left}, Right={x_right}"
+            "details": f"Multi-cascade tracking success. Detected {speaker_count} speakers. Left=({x_left},{y_left}), Right=({x_right},{y_right})"
         }))
 
     finally:

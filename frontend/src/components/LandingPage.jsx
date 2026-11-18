@@ -1,847 +1,2083 @@
-import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import {
-  Play, Pause, RotateCcw, RotateCw, Layout, Type, Maximize2,
-  Sparkles, Palette, Share2, ArrowRight, Check, Undo, Redo, Zap,
-  Scissors, Captions, TrendingUp, Globe, Star, Quote, ChevronRight,
-  Upload, Cpu, Download, Users, Clock, Award, Flame
-} from "lucide-react";
+import { useState, useEffect, useRef } from "react"
+import { ArrowRight, Sparkles, Check, Play, Pause, Download, SlidersHorizontal, RefreshCw, Scissors, Volume2, VolumeX, Eye, Maximize, X } from "lucide-react"
+import { io } from "socket.io-client"
+import axios from "axios"
+import Navbar from "./Navbar"
+import ExtendCutModal from "./ExtendCutModal"
+import { CAPTION_STYLES } from "./Dashboard"
 
-const LandingPage = () => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(15);
-  const [activeFeature, setActiveFeature] = useState("ai");
-  const [activePlan, setActivePlan] = useState("pro");
+const API_BASE = "http://localhost:5000/api"
+const API_ROOT = "http://localhost:5000"
 
-  const waveformBars = [12, 18, 8, 15, 24, 32, 16, 12, 28, 38, 14, 18, 22, 12, 8, 24, 36, 42, 28, 18, 12, 24, 16, 8, 14, 22, 38, 48, 24, 12, 18, 24, 16, 12, 22, 34, 18, 8, 14, 20];
+const getFullUrl = (path) => {
+  if (!path) return ""
+  if (path.startsWith("http://") || path.startsWith("https://")) return path
+  const cleanPath = path.startsWith("/") ? path : `/${path}`
+  return `${API_ROOT}${cleanPath}`
+}
+
+let _socket = null
+const getSocket = () => {
+  if (!_socket) {
+    _socket = io(API_ROOT, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+    })
+  }
+  return _socket
+}
+
+export default function LandingPage() {
+  const [url, setUrl] = useState("")
+  const [selectedLanguage, setSelectedLanguage] = useState("auto")
+  const [selectedLayout, setSelectedLayout] = useState("smart")
+
+  // Live generation state
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [sessionId, setSessionId] = useState(null)
+  const [progress, setProgress] = useState(0)
+  const [currentStep, setCurrentStep] = useState("")
+  const [sessionError, setSessionError] = useState(null)
+  const [generatedClips, setGeneratedClips] = useState([])
+  const [videoInfo, setVideoInfo] = useState(null)
+
+  // Clip preview / editor modal state
+  const [activeClip, setActiveClip] = useState(null)
+  const [selectedStyle, setSelectedStyle] = useState("shortai")
+  const [activeColor, setActiveColor] = useState("#9DFF4A")
+  const [secondaryColor, setSecondaryColor] = useState("#EDEDE8")
+  const [selectedFont, setSelectedFont] = useState(null)
+  const [captionFontSize, setCaptionFontSize] = useState(96)
+  const [availableTemplates, setAvailableTemplates] = useState([])
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false)
+  const [galleryFilter, setGalleryFilter] = useState("all")
+  const [gallerySearch, setGallerySearch] = useState("")
+  const [isBurningCaption, setIsBurningCaption] = useState(false)
+  const [captionedVideoUrl, setCaptionedVideoUrl] = useState(null)
+  const [trimModalClip, setTrimModalClip] = useState(null)
+  const [isReelFullscreen, setIsReelFullscreen] = useState(false)
+  const [isHoveringPlayer, setIsHoveringPlayer] = useState(false)
+  const [isReframing, setIsReframing] = useState(false)
+
+  // Fetch full 65+ WhiteStair templates catalogue on mount
+  useEffect(() => {
+    axios.get(`${API_BASE}/caption-templates`)
+      .then(res => {
+        if (res.data?.success && Array.isArray(res.data?.templates)) {
+          setAvailableTemplates(res.data.templates)
+        }
+      })
+      .catch(err => console.warn("Failed to load caption templates:", err.message))
+  }, [])
 
   useEffect(() => {
-    let interval;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setCurrentTime((t) => (t >= 72 ? 15 : t + 0.5));
-      }, 500);
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setIsReelFullscreen(false)
+        setTrimModalClip(null)
+        setIsGalleryOpen(false)
+      }
     }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
-  const progressPct = ((currentTime - 0) / 72) * 100;
+  // Interactive Drag & Drop caption positioning (percentage 0 - 100)
+  const [captionPosY, setCaptionPosY] = useState(76)
+  const [captionPosX, setCaptionPosX] = useState(50)
+  const [isDraggingCaption, setIsDraggingCaption] = useState(false)
+  const [showPositionDrag, setShowPositionDrag] = useState(false)
+  const playerContainerRef = useRef(null)
 
-  const features = [
-    { id: "ai", icon: <Sparkles size={18} />, title: "AI Detection", desc: "Auto highlight identification" },
-    { id: "branding", icon: <Palette size={18} />, title: "Custom Branding", desc: "Logos, fonts & color palettes" },
-    { id: "export", icon: <Share2 size={18} />, title: "Instant Export", desc: "One-click to all socials" },
-  ];
+  const updateCaptionPosition = (clientX, clientY) => {
+    if (!playerContainerRef.current) return
+    const rect = playerContainerRef.current.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const rawY = Math.round(((clientY - rect.top) / rect.height) * 100)
+    const rawX = Math.round(((clientX - rect.left) / rect.width) * 100)
+    const clampedY = Math.max(12, Math.min(88, rawY))
+    const clampedX = Math.max(15, Math.min(85, rawX))
+    setCaptionPosY(clampedY)
+    setCaptionPosX(clampedX)
+  }
 
-  const stats = [
-    { value: "2.4M+", label: "Clips Generated" },
-    { value: "98%", label: "Faster Editing" },
-    { value: "47K+", label: "Creators" },
-  ];
+  const handleContainerMouseMove = (e) => {
+    if (!isDraggingCaption) return
+    updateCaptionPosition(e.clientX, e.clientY)
+  }
 
-  const steps = [
-    {
-      number: "01",
-      icon: <Upload size={22} />,
-      title: "Drop your URL",
-      desc: "Paste any YouTube, Loom, or Zoom link. ClipForge fetches and processes the video automatically — no downloads needed.",
-      tag: "< 10 seconds",
-    },
-    {
-      number: "02",
-      icon: <Cpu size={22} />,
-      title: "AI finds the gold",
-      desc: "Our model scans for energy spikes, emotional peaks, and hook moments. Every clip is scored for viral potential before you even see it.",
-      tag: "AI powered",
-    },
-    {
-      number: "03",
-      icon: <Scissors size={22} />,
-      title: "Auto-crop & caption",
-      desc: "9:16 smart reframe keeps your speaker centered. Whisper captions burn word-by-word with 10+ premium styles to choose from.",
-      tag: "1080p output",
-    },
-    {
-      number: "04",
-      icon: <Download size={22} />,
-      title: "Export & go viral",
-      desc: "Download all clips in one click or push directly to TikTok, Instagram Reels, and YouTube Shorts from the dashboard.",
-      tag: "All platforms",
-    },
-  ];
+  const handleContainerTouchMove = (e) => {
+    if (!isDraggingCaption || !e.touches[0]) return
+    updateCaptionPosition(e.touches[0].clientX, e.touches[0].clientY)
+  }
 
-  const testimonials = [
-    {
-      name: "Priya Mehta",
-      handle: "@priyacreates",
-      avatar: "PM",
-      role: "YouTube Creator · 1.2M subs",
-      stars: 5,
-      text: "I went from spending 4 hours editing one video to getting 8 clips in under 15 minutes. ClipForge literally changed my workflow overnight.",
-      metric: "8× faster",
-    },
-    {
-      name: "Arjun Kapoor",
-      handle: "@arjunbuilds",
-      avatar: "AK",
-      role: "Startup Founder · SaaS",
-      stars: 5,
-      text: "We clip our podcast every week. Before ClipForge we had one editor doing it manually. Now it's fully automated and the clips actually perform better.",
-      metric: "3× more views",
-    },
-    {
-      name: "Shreya Nair",
-      handle: "@shreyalifts",
-      avatar: "SN",
-      role: "Fitness Influencer · 400K",
-      stars: 5,
-      text: "The Hindi caption support is insane. My regional audience grew 60% just from Reels I never would've made without this tool.",
-      metric: "+60% reach",
-    },
-    {
-      name: "Rahul Das",
-      handle: "@rahulpodcast",
-      avatar: "RD",
-      role: "Podcast Host · 200 eps",
-      stars: 5,
-      text: "Every episode now gets 6–10 clips automatically. My team was skeptical but after the first week they were fully converted. Best $29 I spend monthly.",
-      metric: "6–10 clips/ep",
-    },
-  ];
+  // Global mousemove/touchmove while dragging caption so it doesn't drop outside player rect
+  useEffect(() => {
+    if (!isDraggingCaption) return
+    const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY
+      updateCaptionPosition(clientX, clientY)
+    }
+    const onUp = () => setIsDraggingCaption(false)
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    window.addEventListener("touchmove", onMove, { passive: false })
+    window.addEventListener("touchend", onUp)
+    return () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+      window.removeEventListener("touchmove", onMove)
+      window.removeEventListener("touchend", onUp)
+    }
+  }, [isDraggingCaption])
 
-  const plans = [
-    {
-      id: "starter",
-      name: "Starter",
-      price: "₹0",
-      period: "forever",
-      desc: "Perfect for trying it out",
-      features: ["5 clips / month", "720p export", "3 caption styles", "Basic AI scoring", "Email support"],
-      cta: "Start Free",
-      highlight: false,
-    },
-    {
-      id: "pro",
-      name: "Pro",
-      price: "₹2,499",
-      period: "/ month",
-      desc: "For serious creators",
-      features: ["Unlimited clips", "1080p + 4K export", "10 caption styles", "Advanced AI scoring", "Custom branding", "Priority support", "Direct social publish"],
-      cta: "Start Pro Trial",
-      highlight: true,
-      badge: "Most Popular",
-    },
-    {
-      id: "team",
-      name: "Team",
-      price: "₹7,999",
-      period: "/ month",
-      desc: "For agencies & studios",
-      features: ["Everything in Pro", "5 team seats", "Shared workspace", "White-label export", "API access", "Dedicated manager", "SLA guarantee"],
-      cta: "Talk to Sales",
-      highlight: false,
-    },
-  ];
+  const inputRef = useRef(null)
 
-  const featureGrid = [
-    { icon: <Zap size={20} />, title: "AI Hook Detection", desc: "Automatically identifies the 3-8 seconds that make viewers stop scrolling." },
-    { icon: <Scissors size={20} />, title: "Smart 9:16 Crop", desc: "Face-tracking reframe keeps your speaker perfectly centered across all cuts." },
-    { icon: <Captions size={20} />, title: "Whisper Captions", desc: "Word-by-word animated captions in 12+ languages with 10 premium styles." },
-    { icon: <TrendingUp size={20} />, title: "Viral Score", desc: "Every clip gets a 0–100 virality score based on energy, pacing and hook strength." },
-    { icon: <Globe size={20} />, title: "Hindi + English", desc: "Full bilingual caption support for creators targeting regional audiences." },
-    { icon: <Sparkles size={20} />, title: "10 Caption Themes", desc: "Bold, minimal, fire, neon — match your brand aesthetic in one click." },
-    { icon: <Palette size={20} />, title: "Custom Branding", desc: "Add your logo, brand colors and lower thirds to every export automatically." },
-    { icon: <Share2 size={20} />, title: "Direct Publishing", desc: "Push clips straight to TikTok, Instagram Reels and YouTube Shorts." },
-  ];
+  const focusInput = () => {
+    const el = document.getElementById("yt-url-input")
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" })
+      setTimeout(() => el.focus(), 300)
+    }
+  }
+
+  // Socket listener for live generation updates
+  useEffect(() => {
+    const socket = getSocket()
+    const handleProgress = (data) => {
+      if (!data) return
+      if (sessionId && data.sessionId !== sessionId) return
+
+      setProgress(data.progress || 0)
+      if (data.currentStep) setCurrentStep(data.currentStep)
+
+      if (data.status === "completed" && Array.isArray(data.clips)) {
+        setIsProcessing(false)
+        setGeneratedClips(data.clips)
+        if (data.videoInfo) setVideoInfo(data.videoInfo)
+        if (data.clips.length > 0) {
+          setActiveClip(data.clips[0])
+          setTimeout(() => {
+            const el = document.getElementById("active-clip-studio")
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+          }, 350)
+        }
+      } else if (data.status === "error") {
+        setIsProcessing(false)
+        setSessionError(data.error || "Generation encountered an issue")
+      }
+    }
+
+    socket.on("progress", handleProgress)
+    return () => socket.off("progress", handleProgress)
+  }, [sessionId, activeClip])
+
+  // Handle URL submit
+  const handleGenerate = async (e) => {
+    if (e) e.preventDefault()
+    const clean = url.trim()
+    if (!clean) {
+      focusInput()
+      return
+    }
+
+    try {
+      setIsProcessing(true)
+      setSessionError(null)
+      setProgress(5)
+      setCurrentStep("Initiating AI clip engine…")
+      setGeneratedClips([])
+
+      // Scroll to stage
+      const stage = document.getElementById("product-stage")
+      if (stage) stage.scrollIntoView({ behavior: "smooth", block: "start" })
+
+      const res = await axios.post(`${API_BASE}/generate-clips`, {
+        url: clean,
+        language: selectedLanguage,
+        layout: selectedLayout,
+      })
+
+      if (res.data?.success && res.data?.sessionId) {
+        setSessionId(res.data.sessionId)
+      } else {
+        throw new Error(res.data?.error || "Failed to start generation")
+      }
+    } catch (err) {
+      setIsProcessing(false)
+      setSessionError(err.response?.data?.error || err.message)
+    }
+  }
+
+  // Apply caption style to active clip
+  const handleApplyCaptionStyle = async (styleId = null, overrideActiveColor = null, overrideSecColor = null, overridePosY = null, overridePosX = null, overrideFontSize = null) => {
+    if (!activeClip || !sessionId) return
+    const sId = styleId || selectedStyle
+    const aColor = overrideActiveColor || activeColor
+    const sColor = overrideSecColor || secondaryColor
+    const posY = overridePosY != null ? overridePosY : captionPosY
+    const posX = overridePosX != null ? overridePosX : captionPosX
+    const fSize = overrideFontSize != null ? overrideFontSize : captionFontSize
+    setSelectedStyle(sId)
+    setIsBurningCaption(true)
+    try {
+      const res = await axios.post(`${API_BASE}/add-captions/${activeClip.id}`, {
+        sessionId,
+        captionStyle: sId,
+        selectedFont,
+        textColor: sColor,
+        highlightColor: aColor,
+        overrides: {
+          textColor: sColor,
+          highlightColor: aColor,
+          positionX: posX,
+          positionY: posY,
+          fontSize: fSize,
+        }
+      })
+      if (res.data?.success && res.data?.videoUrl) {
+        setCaptionedVideoUrl(`${API_ROOT}${res.data.videoUrl}`)
+      }
+    } catch (e) {
+      console.warn("Caption burn failed:", e.message)
+    } finally {
+      setIsBurningCaption(false)
+    }
+  }
+
+  // Reframe / change layout mode for active clip (Split, Inverted, Smart Track, Focus Left, Focus Right, etc.)
+  const handleReframe = async (layoutMode) => {
+    if (!activeClip || !sessionId || isReframing) return
+    setIsReframing(true)
+    const hadCaptions = !!captionedVideoUrl || !!activeClip.videoUrl?.includes("_captioned")
+    try {
+      const res = await axios.post(`${API_BASE}/re-layout`, {
+        sessionId,
+        clipId: activeClip.id,
+        layoutMode
+      })
+      if (res.data?.success) {
+        const newUrl = res.data.videoUrl
+        const newThumb = res.data.thumbnail || activeClip.thumbnail
+        const updated = {
+          ...activeClip,
+          layoutMode,
+          videoUrl: newUrl,
+          thumbnail: newThumb
+        }
+        setActiveClip(updated)
+        setClips(prev => prev.map(c => c.id === activeClip.id ? updated : c))
+        setCaptionedVideoUrl(null)
+
+        // If the clip previously had burned captions, re-burn with current style
+        if (hadCaptions) {
+          await handleApplyCaptionStyle(selectedStyle)
+        }
+      }
+    } catch (err) {
+      console.error("Failed to reframe video:", err)
+    } finally {
+      setIsReframing(false)
+    }
+  }
+
+  const handleExtendSave = async (clip, newStartTime, newEndTime) => {
+    setIsBurningCaption(true)
+    try {
+      const res = await axios.post(`${API_BASE}/extend-cut-clip`, {
+        clipId: clip.id,
+        newStartTime,
+        newEndTime,
+        sessionId,
+        layoutMode: selectedLayout,
+      })
+      if (res.data?.success && res.data?.clip) {
+        const newClip = res.data.clip
+        setGeneratedClips(prev => [newClip, ...prev.filter(c => c.id !== clip.id)])
+        setActiveClip(newClip)
+        setCaptionedVideoUrl(null)
+        setTrimModalClip(null)
+      } else {
+        throw new Error(res.data?.error || "Failed to extend clip")
+      }
+    } catch (e) {
+      console.error("Extend failed:", e.message)
+      alert(e.response?.data?.error || e.message)
+    } finally {
+      setIsBurningCaption(false)
+    }
+  }
+
+  // 48 waveform bars heights (percent)
+  const waveformHeights = [
+    30, 45, 25, 60, 85, 95, 80, 50, 35, 75,
+    90, 100, 85, 70, 40, 25, 55, 70, 45, 30,
+    65, 80, 95, 100, 90, 60, 40, 30, 50, 70,
+    85, 95, 90, 65, 45, 35, 60, 80, 100, 90,
+    75, 55, 40, 65, 85, 70, 50, 30
+  ]
 
   return (
-    <div className="min-h-screen bg-[#0A0A0B] text-white overflow-hidden">
+    <div className="min-h-screen bg-[#060606] text-[#EDEDE8] selection:bg-[#9DFF4A] selection:text-[#060606] relative overflow-hidden font-['Geist']">
+      {/* ── 1. FLOATING GLASS PILL NAV ── */}
+      <Navbar onStartFree={focusInput} />
 
-      {/* Grid background */}
-      <div className="fixed inset-0 opacity-[0.025]" style={{ backgroundImage: "linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px)", backgroundSize: "72px 72px" }} />
+      {/* ── 2. HERO SECTION ── */}
+      <section id="hero" className="relative pt-36 md:pt-44 pb-20 px-6 max-w-[1240px] mx-auto flex flex-col items-center text-center">
+        {/* Soft green ambient glow behind hero */}
+        <div
+          aria-hidden="true"
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[720px] md:w-[960px] h-[460px] pointer-events-none"
+          style={{
+            background: "radial-gradient(ellipse at 50% 0%, rgba(157,255,74,0.14) 0%, rgba(6,6,6,0) 68%)",
+          }}
+        />
 
-      {/* Glow spots */}
-      <div className="fixed top-0 left-1/4 w-[600px] h-[600px] rounded-full opacity-[0.07] pointer-events-none" style={{ background: "radial-gradient(circle, #F59E0B, transparent 70%)" }} />
-      <div className="fixed bottom-0 right-1/4 w-[500px] h-[500px] rounded-full opacity-[0.05] pointer-events-none" style={{ background: "radial-gradient(circle, #8B5CF6, transparent 70%)" }} />
+        {/* Micro eyebrow with pulsing green dot */}
+        <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-[#1C1C1A] bg-[#0C0C0B] mb-8 select-none">
+          <span className="w-2 h-2 rounded-full bg-[#9DFF4A] eyebrow-dot" />
+          <span className="micro-label text-[11px] font-['Geist_Mono'] font-medium tracking-[0.14em] text-[#9A9A94]">
+            AI CLIP ENGINE
+          </span>
+        </div>
 
-      {/* Navbar spacer */}
-      <div className="h-20" />
+        {/* Masked two-line headline */}
+        <h1 className="hero-title text-[#EDEDE8] max-w-[1040px] select-none">
+          <span className="headline-mask">
+            <span className="headline-line-1">Long video in.</span>
+          </span>
+          <span className="headline-mask mt-1 md:mt-2">
+            <span className="headline-line-2">
+              <span className="accent-phrase">Viral shorts</span> out.
+            </span>
+          </span>
+        </h1>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── HERO ──────────────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
+        {/* Sub copy */}
+        <p className="body-text text-[#9A9A94] max-w-[540px] mt-6 text-[17px] md:text-[18px]">
+          Paste a YouTube link. Our AI watches every second, picks the moments worth posting, and cuts them to 9:16 with captions.
+        </p>
 
-      {/* Keyframe styles injected once */}
-      <style>{`
-        @keyframes heroFadeUp { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes floatA { 0%,100% { transform:translateY(0px) rotate(-2deg); } 50% { transform:translateY(-14px) rotate(-2deg); } }
-        @keyframes floatB { 0%,100% { transform:translateY(0px) rotate(2deg); } 50% { transform:translateY(-10px) rotate(2deg); } }
-        @keyframes floatC { 0%,100% { transform:translateY(0px) rotate(-1deg); } 50% { transform:translateY(-18px) rotate(-1deg); } }
-        @keyframes pulseRing { 0%,100% { opacity:0.15; transform:scale(1); } 50% { opacity:0.04; transform:scale(1.08); } }
-        @keyframes shimmer { 0% { background-position:200% center; } 100% { background-position:-200% center; } }
-        .hero-word { animation: heroFadeUp 0.7s cubic-bezier(0.16,1,0.3,1) both; }
-        .float-a { animation: floatA 6s ease-in-out infinite; }
-        .float-b { animation: floatB 8s ease-in-out infinite; }
-        .float-c { animation: floatC 7s ease-in-out 1s infinite; }
-        .shimmer-text {
-          background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 30%, #fde68a 50%, #fbbf24 70%, #f59e0b 100%);
-          background-size: 200% auto;
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          animation: shimmer 4s linear infinite;
-        }
-      `}</style>
+        {/* URL Input Bar */}
+        <div className="w-full max-w-[640px] mt-10">
+          <form
+            onSubmit={handleGenerate}
+            className="w-full p-2 rounded-full border border-[#2F2F2B] bg-[#121210]/90 backdrop-blur-md flex items-center justify-between gap-2 shadow-[0_12px_36px_rgba(0,0,0,0.6)] focus-within:border-[#9DFF4A] transition-colors"
+          >
+            <label htmlFor="yt-url-input" className="sr-only">
+              YouTube URL
+            </label>
+            <input
+              ref={inputRef}
+              id="yt-url-input"
+              type="url"
+              required
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="youtube.com/watch?v=..."
+              className="flex-1 bg-transparent border-none outline-none text-[#EDEDE8] placeholder-[#6E6E68] text-[15px] px-4 font-['Geist'] font-normal"
+            />
+            <button
+              type="submit"
+              disabled={isProcessing}
+              className="btn-primary text-[14px] px-6 h-[44px] shrink-0"
+            >
+              {isProcessing ? (
+                <>
+                  <RefreshCw size={15} className="animate-spin" />
+                  Analyzing…
+                </>
+              ) : (
+                <>Generate clips</>
+              )}
+            </button>
+          </form>
 
-      <section className="relative z-10 overflow-hidden">
-
-        {/* ── Large ambient orbs ── */}
-        <div className="absolute top-[-100px] left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full pointer-events-none" style={{ background: "radial-gradient(ellipse, rgba(245,158,11,0.09) 0%, transparent 65%)" }} />
-        <div className="absolute top-[60px] left-[8%] w-[320px] h-[320px] rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(245,158,11,0.05), transparent 70%)", animation: "pulseRing 5s ease-in-out infinite" }} />
-        <div className="absolute top-[100px] right-[6%] w-[260px] h-[260px] rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(139,92,246,0.06), transparent 70%)", animation: "pulseRing 7s ease-in-out 2s infinite" }} />
-
-        <div className="max-w-7xl mx-auto px-6 pt-20 pb-0">
-
-          {/* ── CENTER COPY BLOCK ── */}
-          <div className="text-center max-w-4xl mx-auto mb-16">
-
-            {/* Eyebrow pill */}
-            <div className="hero-word inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-[11px] font-bold tracking-widest uppercase mb-8" style={{ animationDelay: "0ms" }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              AI-Powered Shorts Engine
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            </div>
-
-            {/* Main headline */}
-            <h1 className="font-black tracking-tighter leading-[1.0] mb-8">
-              <div className="hero-word text-6xl lg:text-8xl text-white mb-1" style={{ animationDelay: "80ms" }}>
-                Turn long videos
-              </div>
-              <div className="hero-word text-6xl lg:text-8xl mb-1" style={{ animationDelay: "160ms" }}>
-                <span className="shimmer-text">into viral clips</span>
-              </div>
-              <div className="hero-word text-6xl lg:text-8xl text-white/15" style={{ animationDelay: "240ms" }}>
-                in seconds.
-              </div>
-            </h1>
-
-            {/* Subtext */}
-            <p className="hero-word text-[17px] text-white/40 leading-relaxed max-w-2xl mx-auto mb-10" style={{ animationDelay: "320ms" }}>
-              Drop any YouTube, Loom, or Zoom URL. ClipForge's AI finds the gold, auto-crops to 9:16, burns word-by-word captions, and delivers 1080p clips ready to post.
-            </p>
-
-            {/* CTA row */}
-            <div className="hero-word flex flex-wrap items-center justify-center gap-4 mb-12" style={{ animationDelay: "400ms" }}>
-              <Link to="/register" className="group relative inline-flex items-center gap-2.5 px-8 py-4 bg-amber-400 hover:bg-amber-300 text-[#0A0A0B] text-[15px] font-black rounded-2xl transition-all duration-200 hover:scale-[1.03] shadow-[0_0_40px_rgba(245,158,11,0.25)] hover:shadow-[0_0_60px_rgba(245,158,11,0.4)]">
-                <Zap size={16} strokeWidth={3} />
-                Start Forging Free
-                <ArrowRight size={15} strokeWidth={2.5} className="group-hover:translate-x-0.5 transition-transform" />
-              </Link>
-              <button
-                className="inline-flex items-center gap-2.5 px-7 py-4 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.09] text-white/60 hover:text-white text-[15px] font-semibold rounded-2xl transition-all duration-200"
-                onClick={() => setIsPlaying(!isPlaying)}
+          {/* Quick options: Language + Framing */}
+          <div className="flex flex-wrap items-center justify-center gap-4 mt-4 text-[13px] text-[#9A9A94]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#6E6E68]">Language:</span>
+              <select
+                value={selectedLanguage}
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+                className="bg-[#0C0C0B] border border-[#1C1C1A] text-[#EDEDE8] rounded-full px-2.5 py-1 text-[12px] outline-none cursor-pointer hover:border-[#2F2F2B]"
               >
-                <div className="w-6 h-6 rounded-full border border-white/20 flex items-center justify-center">
-                  {isPlaying ? <Pause size={11} fill="currentColor" /> : <Play size={11} fill="currentColor" className="ml-0.5" />}
-                </div>
-                Watch 60s Demo
-              </button>
+                <option value="auto">Auto-detect (Hinglish / Gujlish / English)</option>
+                <option value="hinglish">Hinglish (Hindi in English letters)</option>
+                <option value="gujlish">Gujlish (Gujarati in English letters)</option>
+                <option value="english">English</option>
+              </select>
             </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#6E6E68]">Framing:</span>
+              <select
+                value={selectedLayout}
+                onChange={(e) => setSelectedLayout(e.target.value)}
+                className="bg-[#0C0C0B] border border-[#1C1C1A] text-[#EDEDE8] rounded-full px-2.5 py-1 text-[12px] outline-none cursor-pointer hover:border-[#2F2F2B]"
+              >
+                <option value="smart">Full Screen 9:16 Reel (Smart Pan)</option>
+                <option value="split">Split 2-Person (Podcast Top/Bottom)</option>
+                <option value="center">Static Center 9:16</option>
+                <option value="fit">Fit / Letterbox Full Frame</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Avatar social proof row */}
-            <div className="hero-word flex items-center justify-center gap-4" style={{ animationDelay: "480ms" }}>
-              <div className="flex items-center -space-x-2.5">
-                {["PM", "AK", "SN", "RD", "VK"].map((init, i) => (
-                  <div
-                    key={init}
-                    className="w-8 h-8 rounded-full border-2 border-[#0A0A0B] flex items-center justify-center text-[9px] font-black text-[#0A0A0B]"
-                    style={{
-                      background: ["#F59E0B","#10B981","#8B5CF6","#F59E0B","#06B6D4"][i],
-                      zIndex: 5 - i,
-                    }}
-                  >
-                    {init}
-                  </div>
-                ))}
-              </div>
-              <div className="text-left">
-                <div className="flex items-center gap-1 mb-0.5">
-                  {[...Array(5)].map((_, i) => <Star key={i} size={11} className="text-amber-400 fill-amber-400" />)}
-                  <span className="text-[12px] font-black text-white/60 ml-1">4.9</span>
-                </div>
-                <p className="text-[12px] text-white/30">Loved by <span className="text-white/55 font-semibold">47,000+</span> creators</p>
-              </div>
+      {/* ── 3. PRODUCT STAGE PANEL ── */}
+      <section id="product-stage" className="max-w-[1240px] mx-auto px-6 mb-28">
+        <div className="w-full bg-[#0C0C0B] border border-[#1C1C1A] rounded-[32px] p-6 md:p-10 relative overflow-hidden shadow-[0_32px_80px_rgba(0,0,0,0.85)]">
+          {/* Subtle top inner gradient */}
+          <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-[#141E0F]/20 to-transparent pointer-events-none" />
+
+          {/* Stage Top Header Row */}
+          <div className="flex items-center justify-between pb-6 border-b border-[#1C1C1A] relative z-10">
+            <div className="flex items-center gap-3">
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94] tracking-[0.14em]">
+                {isProcessing
+                  ? `LIVE ANALYSIS · ${progress}%`
+                  : generatedClips.length > 0
+                  ? `READY · ${videoInfo?.title?.slice(0, 36) || "Video clips"}`
+                  : "Analyzing · 01:42:18"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#9DFF4A] eyebrow-dot" />
+              <span className="font-['Geist_Mono'] text-[12px] uppercase tracking-wider text-[#9DFF4A] font-medium">
+                {isProcessing
+                  ? currentStep || "Processing..."
+                  : generatedClips.length > 0
+                  ? `${generatedClips.length} clips ready`
+                  : "4 moments found"}
+              </span>
             </div>
           </div>
 
-          {/* ── FLOATING CARDS + EDITOR MOCKUP ── */}
-          <div className="relative flex items-end justify-center gap-5 pb-0">
+          {/* Waveform & Sweeping Scan Line Container */}
+          <div className="relative py-8 my-4 overflow-hidden select-none">
+            {/* The sweeping scan line */}
+            <div className="scan-line" />
 
-            {/* ── Left floating clip card (9:16) ── */}
-            <div className="float-a hidden lg:block w-[148px] flex-shrink-0 mb-10 self-end">
-              <div className="relative bg-[#111113] border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: "9/16" }}>
-                <img src="https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=300&auto=format&fit=crop&q=80" alt="" className="absolute inset-0 w-full h-full object-cover opacity-60" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                {/* AI badge */}
-                <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400/30 backdrop-blur-sm">
-                  <Zap size={8} className="text-amber-400" strokeWidth={3} />
-                  <span className="text-amber-400 text-[8px] font-black">HOOK</span>
-                </div>
-                {/* Score */}
-                <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/50 border border-white/10 backdrop-blur-sm">
-                  <span className="text-emerald-400 text-[8px] font-black">96%</span>
-                </div>
-                {/* Caption */}
-                <div className="absolute bottom-3 left-2 right-2">
-                  <div className="bg-black/70 backdrop-blur-sm rounded-lg px-2 py-1.5 text-center">
-                    <span className="text-white text-[9px] font-black">This changed <span className="text-amber-400">EVERYTHING</span></span>
+            {/* Waveform Bars */}
+            <div className="flex items-center justify-between gap-1 md:gap-2 h-28 px-2">
+              {waveformHeights.map((h, i) => {
+                // Determine if bar is in a detected viral moment zone
+                const isMoment =
+                  (i >= 5 && i <= 8) ||
+                  (i >= 18 && i <= 22) ||
+                  (i >= 30 && i <= 34) ||
+                  (i >= 40 && i <= 43)
+
+                const isProcessed = isProcessing ? (i / waveformHeights.length) * 100 <= progress : true
+
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 flex items-center justify-center h-full"
+                  >
+                    <div
+                      className={`w-full max-w-[8px] rounded-full transition-all duration-300 waveform-bar ${
+                        isMoment && isProcessed
+                          ? "bg-[#9DFF4A] shadow-[0_0_12px_rgba(157,255,74,0.6)]"
+                          : "bg-[#1E1E1C]"
+                      }`}
+                      style={{
+                        height: `${h}%`,
+                        animationDelay: `${(i % 12) * 0.1}s`,
+                        animationDuration: `${1.2 + (i % 5) * 0.15}s`,
+                      }}
+                    />
                   </div>
-                </div>
-                {/* Platform tag */}
-                <div className="absolute bottom-[-1px] left-0 right-0 h-6 bg-gradient-to-t from-[#111113] to-transparent" />
-              </div>
-              <div className="mt-2 px-1">
-                <div className="text-[9px] font-bold text-white/30">TikTok · 1080p</div>
-                <div className="text-[8px] text-white/15 mt-0.5">0:37 duration</div>
-              </div>
+                )
+              })}
             </div>
+          </div>
 
-            {/* ── CENTER Editor Mockup ── */}
-            <div className="relative flex-shrink-0 w-full max-w-[680px]">
-              {/* Glow behind */}
-              <div className="absolute -inset-6 bg-amber-500/6 rounded-3xl blur-3xl pointer-events-none" />
-
-              <div className="relative bg-[#111113] border border-white/[0.09] rounded-2xl overflow-hidden shadow-[0_32px_80px_rgba(0,0,0,0.7)]">
-                {/* Titlebar */}
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-[#0D0D0F]">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
-                  <span className="ml-3 text-[11px] font-mono text-white/20">ClipForge Editor — project_q4_launch.mp4</span>
-                  {/* Live processing badge */}
-                  <div className="ml-auto flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-[9px] font-bold text-emerald-400">Processing</span>
-                  </div>
+          {/* Live Generated Clips Showcase OR 4 Mockup Tilted Phone Cards */}
+          {generatedClips.length > 0 ? (
+            /* REAL GENERATED CLIPS GRID */
+            <div className="mt-8 pt-8 border-t border-[#1C1C1A]">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-['Bricolage_Grotesque'] font-bold text-[24px] text-[#EDEDE8]">
+                    Generated 9:16 Shorts
+                  </h3>
+                  <p className="text-[14px] text-[#9A9A94]">
+                    AI ranked moments by viral retention with burned-in animated captions
+                  </p>
                 </div>
+                <button
+                  onClick={() => {
+                    setGeneratedClips([])
+                    setUrl("")
+                  }}
+                  className="btn-ghost text-[13px] h-[36px] px-4"
+                >
+                  New video
+                </button>
+              </div>
 
-                <div className="flex">
-                  {/* Video pane */}
-                  <div className="flex-1 p-4">
-                    <div className="relative bg-black rounded-xl overflow-hidden aspect-video mb-3">
-                      <img src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=700&auto=format&fit=crop&q=80" alt="Video preview" className="w-full h-full object-cover opacity-70" />
-                      <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
-                        <div className="bg-black/70 backdrop-blur-sm px-3 py-1.5 rounded-lg">
-                          <span className="text-white font-black text-sm tracking-wide">the <span className="text-amber-400">BEST</span> moment</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {generatedClips.map((clip, idx) => {
+                  const isCurActive = activeClip?.id === clip.id
+                  return (
+                    <div
+                      key={clip.id}
+                      onClick={() => {
+                        setActiveClip(clip)
+                        setCaptionedVideoUrl(null)
+                        setTimeout(() => {
+                          const el = document.getElementById("active-clip-studio")
+                          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }, 100)
+                      }}
+                      className={`phone-card p-4 flex flex-col justify-between cursor-pointer transition-all duration-300 ${
+                        isCurActive
+                          ? "ring-2 ring-[#9DFF4A] shadow-[0_0_24px_rgba(157,255,74,0.3)]"
+                          : "hover:border-[#9DFF4A]"
+                      }`}
+                      style={{ minHeight: "380px" }}
+                    >
+                      {/* Top Row: Score Badge + Rank */}
+                      <div className="flex items-center justify-between">
+                        <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[12px] px-2.5 py-0.5 rounded-full">
+                          {clip.viralScore || 90 + idx}
+                        </span>
+                        <span className="font-['Geist_Mono'] text-[11px] text-[#9A9A94]">
+                          {clip.duration || 30}s
+                        </span>
+                      </div>
+
+                      {/* Video / Thumbnail preview */}
+                      <div className="flex-1 flex items-center justify-center my-4 relative rounded-xl overflow-hidden bg-[#121210] aspect-[9/16] max-h-[220px]">
+                        {clip.thumbnail ? (
+                          <div className="w-full h-full relative flex items-center justify-center">
+                            <img
+                              src={getFullUrl(clip.thumbnail)}
+                              alt={clip.title}
+                              className="w-full h-full object-cover rounded-xl"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const fb = e.currentTarget.parentElement?.querySelector('.fallback-icon');
+                                if (fb) fb.style.display = 'flex';
+                              }}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 pointer-events-none" />
+                            <div className="fallback-icon absolute inset-0 hidden items-center justify-center bg-[#151C0F]">
+                              <Play size={24} className="text-[#9DFF4A]" />
+                            </div>
+                            {/* Timestamp badge */}
+                            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/85 border border-white/20 text-[10px] font-['Geist_Mono'] text-[#9DFF4A] shadow-md flex items-center gap-1">
+                              <span>{Math.floor(clip.startTime / 60)}:{String(Math.floor(clip.startTime % 60)).padStart(2, "0")} - {Math.floor(clip.endTime / 60)}:{String(Math.floor(clip.endTime % 60)).padStart(2, "0")}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 rounded-full bg-[#1C2812] border border-[#2F441E] flex items-center justify-center">
+                            <Play size={22} className="text-[#9DFF4A] ml-1" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bottom Caption & Title */}
+                      <div>
+                        <p className="font-['Bricolage_Grotesque'] font-bold text-[13px] text-[#EDEDE8] line-clamp-1 mb-1">
+                          {clip.title || `Clip #${idx + 1}`}
+                        </p>
+                        <p className="font-['Geist'] text-[11px] text-[#9A9A94] line-clamp-2">
+                          {clip.reason || clip.description}
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-3 w-full py-1.5 rounded-full bg-[#182310] border border-[#2A3E1B] text-[#9DFF4A] text-[11px] font-semibold flex items-center justify-center gap-1.5 hover:bg-[#9DFF4A] hover:text-[#060606] transition-all"
+                        >
+                          <Play size={12} /> Preview & Edit
+                        </button>
+                      </div>
+
+                      {/* Bottom progress bar */}
+                      <div className="w-full h-[3px] bg-[#1E1E1C] rounded-full overflow-hidden mt-3">
+                        <div className="h-full bg-[#9DFF4A] w-full" />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Active Clip Preview & Caption Customization Studio */}
+              {activeClip && (
+                <div id="active-clip-studio" className="mt-10 p-6 md:p-8 rounded-3xl bg-[#0C0C0B] border border-[#1C1C1A] shadow-2xl">
+                  <div className="flex flex-col lg:flex-row gap-8 items-start">
+                    {/* Left: 9:16 Video Player / Live Preview with Draggable Captions */}
+                    <div className="w-full lg:w-[320px] shrink-0 flex flex-col items-center">
+                      <div
+                        ref={playerContainerRef}
+                        onMouseMove={handleContainerMouseMove}
+                        onTouchMove={handleContainerTouchMove}
+                        onMouseEnter={() => setIsHoveringPlayer(true)}
+                        onMouseLeave={() => setIsHoveringPlayer(false)}
+                        className="relative w-full aspect-[9/16] rounded-2xl overflow-hidden bg-black border border-[#2F2F2B] shadow-2xl flex items-center justify-center select-none group"
+                      >
+                        {/* Reel Fullscreen Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsReelFullscreen(true)}
+                          className="absolute top-3 right-3 z-40 px-3 py-1.5 rounded-full bg-black/80 hover:bg-black text-[#EDEDE8] hover:text-[#9DFF4A] border border-white/20 hover:border-[#9DFF4A] transition-all flex items-center gap-1.5 text-[11px] font-['Geist_Mono'] shadow-xl backdrop-blur-md cursor-pointer"
+                          title="Open Reel Fullscreen (9:16)"
+                        >
+                          <Maximize size={13} />
+                          <span>Reel Fullscreen</span>
+                        </button>
+
+                        {/* Reframing Loading Overlay */}
+                        {isReframing && (
+                          <div className="absolute inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 text-center">
+                            <div className="w-12 h-12 border-3 border-[#9DFF4A] border-t-transparent rounded-full animate-spin mb-3 shadow-[0_0_20px_rgba(157,255,74,0.4)]" />
+                            <span className="text-base font-bold text-white tracking-wide font-['Bricolage_Grotesque']">Reframing 1080p Video...</span>
+                            <span className="text-xs text-[#9DFF4A] mt-1 font-['Geist_Mono']">Centering faces & assembling layout</span>
+                          </div>
+                        )}
+
+                        {/* Burning Captions Overlay */}
+                        {isBurningCaption && !isReframing && (
+                          <div className="absolute inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col items-center justify-center p-4 text-center">
+                            <div className="w-12 h-12 border-3 border-[#9DFF4A] border-t-transparent rounded-full animate-spin mb-3 shadow-[0_0_20px_rgba(157,255,74,0.4)]" />
+                            <span className="text-base font-bold text-white tracking-wide font-['Bricolage_Grotesque']">Applying Style & Captions...</span>
+                            <span className="text-xs text-[#9DFF4A] mt-1 font-['Geist_Mono']">Rendering animated typography at 1080p</span>
+                          </div>
+                        )}
+
+                        {captionedVideoUrl ? (
+                          <video
+                            key={captionedVideoUrl}
+                            src={captionedVideoUrl}
+                            poster={activeClip.thumbnail ? getFullUrl(activeClip.thumbnail) : undefined}
+                            preload="auto"
+                            playsInline
+                            crossOrigin="anonymous"
+                            controls
+                            controlsList="nofullscreen"
+                            autoPlay
+                            className="w-full h-full object-cover"
+                          />
+                        ) : activeClip.videoUrl ? (
+                          <video
+                            key={activeClip.videoUrl}
+                            src={getFullUrl(activeClip.videoUrl)}
+                            poster={activeClip.thumbnail ? getFullUrl(activeClip.thumbnail) : undefined}
+                            preload="auto"
+                            playsInline
+                            crossOrigin="anonymous"
+                            controls
+                            controlsList="nofullscreen"
+                            autoPlay
+                            className="w-full h-full object-cover"
+                          />
+                        ) : activeClip.thumbnail ? (
+                          <div className="relative w-full h-full flex items-center justify-center bg-[#10150D]">
+                            <img
+                              src={getFullUrl(activeClip.thumbnail)}
+                              alt={activeClip.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleApplyCaptionStyle(selectedStyle)}
+                                disabled={isBurningCaption}
+                                className="btn-primary text-[14px] px-6 h-[46px] shadow-lg mb-2"
+                              >
+                                {isBurningCaption ? (
+                                  <>
+                                    <RefreshCw size={16} className="animate-spin" />
+                                    Burning Captions…
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play size={18} />
+                                    Preview with Captions
+                                  </>
+                                )}
+                              </button>
+                              <span className="text-[12px] text-[#9A9A94]">Click to render 9:16 player preview</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center p-4">
+                            <Play size={32} className="text-[#9DFF4A] mx-auto mb-2" />
+                            <p className="text-xs text-[#9A9A94]">Select clip to preview</p>
+                          </div>
+                        )}
+
+                        {/* Real-time Draggable Caption Placement Overlay */}
+                        {(!captionedVideoUrl || isDraggingCaption || showPositionDrag) && (() => {
+                          const clipWords = (activeClip.captionSegments && activeClip.captionSegments.length > 0)
+                            ? activeClip.captionSegments.slice(0, 3).map(s => s.word)
+                            : (activeClip.title ? activeClip.title.replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean).slice(0, 3) : ["VIRAL", "MOMENTS", "CAPTURED"])
+                          const w1 = clipWords[0] || "VIRAL"
+                          const w2 = clipWords[1] || "MOMENTS"
+                          const w3 = clipWords.slice(2).join(" ") || "CAPTURED"
+
+                          return (
+                            <div
+                              style={{
+                                top: `${captionPosY}%`,
+                                left: `${captionPosX}%`,
+                                transform: "translate(-50%, -50%)",
+                                cursor: isDraggingCaption ? "grabbing" : "grab",
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setIsDraggingCaption(true)
+                                setShowPositionDrag(true)
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation()
+                                setIsDraggingCaption(true)
+                                setShowPositionDrag(true)
+                              }}
+                              className={`absolute z-30 px-4 py-2.5 rounded-2xl select-none transition-all ${
+                                isDraggingCaption
+                                  ? "border-2 border-[#9DFF4A] bg-black/95 shadow-[0_0_30px_rgba(157,255,74,0.6)] scale-105 ring-2 ring-[#9DFF4A]"
+                                  : "border border-white/30 bg-black/75 hover:border-[#9DFF4A] hover:bg-black/90 backdrop-blur-md"
+                              }`}
+                            >
+                              {selectedStyle === "discipline" ? (
+                                <div className="caption-discipline text-center pointer-events-none">
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.15)}px` }} className="text-white font-extrabold tracking-tight">{w1.toLowerCase()}</div>
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.22)}px` }} className="caption-discipline-accent">{`${w2} ${w3}`.trim().toLowerCase()}.</div>
+                                </div>
+                              ) : selectedStyle === "crazy" ? (
+                                <div className="caption-crazy text-center pointer-events-none">
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.12)}px`, color: secondaryColor }}>{w1.toUpperCase()}</div>
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.20)}px`, color: activeColor }} className="caption-crazy-hero">{w2.toUpperCase()}</div>
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.12)}px`, color: secondaryColor }}>{w3.toUpperCase()}</div>
+                                </div>
+                              ) : selectedStyle === "estate4" ? (
+                                <div className="caption-estate4 text-center pointer-events-none">
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.13)}px`, color: secondaryColor }}>{`${w1} ${w2}`.trim()}</div>
+                                  <div style={{ fontSize: `${Math.round(captionFontSize * 0.20)}px`, color: activeColor }} className="caption-estate4-hero">{w3.toUpperCase()}</div>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: `${Math.round(captionFontSize * 0.17)}px` }} className="text-center font-['Bricolage_Grotesque'] font-black tracking-tight pointer-events-none">
+                                  <span style={{ color: secondaryColor }}>{w1} </span>
+                                  <span style={{ color: activeColor }} className="scale-105 inline-block">{w2}</span>
+                                  <span style={{ color: secondaryColor }}> {w3}</span>
+                                </div>
+                              )}
+                              <div className="text-[9px] text-[#9DFF4A] font-['Geist_Mono'] font-bold text-center mt-1 uppercase tracking-wider opacity-90 pointer-events-none flex items-center justify-center gap-1">
+                                <span>↕ Drag to move ({captionPosY}%)</span>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Quick Position Controls */}
+                      <div className="w-full mt-3 flex items-center justify-between text-[11px] font-['Geist_Mono'] text-[#9A9A94]">
+                        <div className="flex items-center gap-2">
+                          <span>Pos: Y={captionPosY}%</span>
+                          {captionedVideoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setShowPositionDrag(p => !p)}
+                              className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${showPositionDrag ? "border-[#9DFF4A] text-[#9DFF4A] bg-[#121210]" : "border-[#1C1C1A] text-[#8A8A84] hover:border-[#2F2F2B]"}`}
+                              title="Toggle drag placement overlay"
+                            >
+                              {showPositionDrag ? "✓ Hide Drag Box" : "↕ Reposition"}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setCaptionPosY(25)}
+                            className={`px-2.5 py-0.5 rounded border transition-colors ${captionPosY === 25 ? "border-[#9DFF4A] text-[#9DFF4A] bg-[#121210]" : "border-[#1C1C1A] text-[#8A8A84] hover:border-[#2F2F2B]"}`}
+                          >
+                            Top
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCaptionPosY(50)}
+                            className={`px-2.5 py-0.5 rounded border transition-colors ${captionPosY === 50 ? "border-[#9DFF4A] text-[#9DFF4A] bg-[#121210]" : "border-[#1C1C1A] text-[#8A8A84] hover:border-[#2F2F2B]"}`}
+                          >
+                            Center
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCaptionPosY(76)}
+                            className={`px-2.5 py-0.5 rounded border transition-colors ${captionPosY === 76 ? "border-[#9DFF4A] text-[#9DFF4A] bg-[#121210]" : "border-[#1C1C1A] text-[#8A8A84] hover:border-[#2F2F2B]"}`}
+                          >
+                            Bottom
+                          </button>
                         </div>
                       </div>
-                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/30 backdrop-blur-sm">
-                        <Zap size={10} className="text-amber-400" strokeWidth={3} />
-                        <span className="text-amber-400 text-[10px] font-bold">AI Hook</span>
-                      </div>
-                      <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10">
-                        <span className="text-emerald-400 text-[10px] font-black">🔥 94%</span>
-                      </div>
-                      {!isPlaying && (
-                        <button className="absolute inset-0 flex items-center justify-center group" onClick={() => setIsPlaying(true)}>
-                          <div className="w-11 h-11 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center group-hover:bg-white/20 transition-all">
-                            <Play size={16} fill="white" color="white" />
+                    </div>
+
+                    {/* Right: Caption Studio & Controls */}
+                    <div className="flex-1 w-full flex flex-col justify-between">
+                      <div>
+                        {/* Title & Metadata */}
+                        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1C1C1A] pb-4 mb-6">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[12px] px-2.5 py-0.5 rounded-full">
+                                Score {activeClip.viralScore}/100
+                              </span>
+                              <span className="text-[12px] font-['Geist_Mono'] text-[#8A8A84]">
+                                {activeClip.duration}s · 1080p Full HD · {activeClip.language || "Auto"}
+                              </span>
+                            </div>
+                            <h4 className="font-['Bricolage_Grotesque'] font-bold text-[22px] md:text-[24px] text-[#EDEDE8]">
+                              {activeClip.title}
+                            </h4>
+                            <p className="text-[14px] text-[#9A9A94] mt-1">
+                              {activeClip.reason || activeClip.description}
+                            </p>
                           </div>
-                        </button>
-                      )}
-                      {isPlaying && (
-                        <button className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity" onClick={() => setIsPlaying(false)}>
-                          <div className="w-11 h-11 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center">
-                            <Pause size={16} fill="white" color="white" />
-                          </div>
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between mb-3 px-1">
-                      <div className="flex items-center gap-1">
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><Undo size={12} /></button>
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><Redo size={12} /></button>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><RotateCcw size={12} /></button>
-                        <button onClick={() => setIsPlaying(!isPlaying)} className="w-9 h-9 flex items-center justify-center rounded-lg bg-amber-500 hover:bg-amber-400 text-black transition-all">
-                          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                        </button>
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><RotateCw size={12} /></button>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><Layout size={12} /></button>
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><Type size={12} /></button>
-                        <button className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/[0.06] text-white/40 transition-colors"><Maximize2 size={12} /></button>
-                      </div>
-                    </div>
-
-                    <div className="relative h-1 bg-white/[0.06] rounded-full mb-2 cursor-pointer group">
-                      <div className="h-full rounded-full bg-amber-400/80 transition-all duration-500" style={{ width: `${progressPct}%` }} />
-                      <div className="absolute -top-2 -translate-x-1/2 w-3 h-3 rounded-full bg-amber-400 opacity-0 group-hover:opacity-100 transition-opacity shadow-[0_0_8px_rgba(245,158,11,0.8)]" style={{ left: `${progressPct}%` }} />
-                    </div>
-
-                    <div className="flex justify-between text-[9px] font-mono text-white/20 mb-3">
-                      <span>0:00</span><span>0:15</span><span>0:30</span><span>0:45</span><span>1:12</span>
-                    </div>
-
-                    <div className="relative h-10 rounded-lg overflow-hidden bg-black/30 border border-white/[0.05] mb-2">
-                      {[...Array(8)].map((_, i) => (
-                        <div key={i} className="absolute top-0 bottom-0 overflow-hidden" style={{ left: `${i * 12.5}%`, width: "12.5%", borderRight: "1px solid rgba(255,255,255,0.04)" }}>
-                          <div className="w-full h-full opacity-40" style={{ backgroundImage: "url(https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=60&auto=format&fit=crop)", backgroundSize: "cover", backgroundPosition: "center" }} />
                         </div>
-                      ))}
-                      <div className="absolute inset-y-0 border-2 border-amber-400/70 bg-amber-400/10 rounded" style={{ left: "20%", right: "20%" }} />
-                      <div className="absolute inset-y-0 w-1 bg-amber-400 rounded-l cursor-ew-resize" style={{ left: "20%" }} />
-                      <div className="absolute inset-y-0 w-1 bg-amber-400 rounded-r cursor-ew-resize" style={{ right: "20%" }} />
-                    </div>
 
-                    <div className="flex items-end gap-[1.5px] h-8 px-0.5">
-                      {waveformBars.map((height, i) => {
-                        const isActive = i >= 8 && i <= 32;
-                        return (
-                          <div key={i} className="flex-1 rounded-[1px] transition-all duration-300" style={{ height: `${height}%`, background: isActive ? "#F59E0B" : "rgba(255,255,255,0.08)" }} />
-                        );
-                      })}
-                    </div>
-                  </div>
+                        {/* 0. Video Framing / Layout Selector */}
+                        <div className="mb-6 p-4 rounded-2xl bg-[#0F0F0D] border border-[#1F1F1D] shadow-lg">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base">📐</span>
+                              <label className="micro-label text-[#EDEDE8] font-bold tracking-wider">
+                                VIDEO FRAMING & LAYOUT
+                              </label>
+                            </div>
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-['Geist_Mono'] font-bold bg-[#1C1C1A] text-[#9DFF4A] border border-[#9DFF4A]/40 flex items-center gap-1.5 shadow-[0_0_10px_rgba(157,255,74,0.15)]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#9DFF4A] animate-pulse" />
+                              {activeClip.layoutMode === "split"
+                                ? "Split Screen (Top/Bottom)"
+                                : activeClip.layoutMode === "split_reverse"
+                                ? "Inverted Split (Bottom/Top)"
+                                : activeClip.layoutMode === "left"
+                                ? "Focus Left (Host)"
+                                : activeClip.layoutMode === "right"
+                                ? "Focus Right (Guest)"
+                                : activeClip.layoutMode === "center"
+                                ? "Center Focus"
+                                : activeClip.layoutMode === "fit"
+                                ? "Fit 16:9 Full"
+                                : "Auto Smart Track"}
+                            </span>
+                          </div>
 
-                  {/* Right sidebar */}
-                  <div className="w-44 border-l border-white/[0.06] p-3 flex flex-col gap-2">
-                    <div className="text-[9px] font-bold tracking-widest uppercase text-white/20 mb-1 px-1">AI Tools</div>
-                    {features.map((feat) => {
-                      const isActive = activeFeature === feat.id;
-                      return (
-                        <button key={feat.id} onClick={() => setActiveFeature(feat.id)} className={`w-full text-left p-2.5 rounded-xl transition-all duration-200 ${isActive ? "bg-amber-500/10 border border-amber-500/25" : "hover:bg-white/[0.04] border border-transparent"}`}>
-                          <div className={`mb-1.5 ${isActive ? "text-amber-400" : "text-white/30"}`}>{feat.icon}</div>
-                          <div className={`text-[11px] font-bold mb-0.5 ${isActive ? "text-white" : "text-white/40"}`}>{feat.title}</div>
-                          <div className="text-[9px] text-white/25 leading-tight">{feat.desc}</div>
-                          {isActive && (
-                            <div className="mt-2 flex items-center gap-1">
-                              <Check size={8} className="text-amber-400" strokeWidth={3} />
-                              <span className="text-[9px] text-amber-400/70 font-semibold">Active</span>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {/* Split Screen */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("split")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                (activeClip.layoutMode === "split" || (!activeClip.layoutMode && activeClip.splitScreenMode))
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">🎙️</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Split Screen</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Top & Bottom</div>
+                              </div>
+                            </button>
+
+                            {/* Inverted Split */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("split_reverse")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "split_reverse"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">🔄</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Swap Split</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Bottom & Top</div>
+                              </div>
+                            </button>
+
+                            {/* Auto Smart Track */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("smart")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "smart"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">👤</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Smart Track</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Active Speaker</div>
+                              </div>
+                            </button>
+
+                            {/* Focus Left */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("left")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "left"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">👈</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Focus Left</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Speaker 1 / Host</div>
+                              </div>
+                            </button>
+
+                            {/* Focus Right */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("right")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "right"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">👉</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Focus Right</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Speaker 2 / Guest</div>
+                              </div>
+                            </button>
+
+                            {/* Center Focus */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("center")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "center"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">🎯</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Center Focus</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">9:16 Fixed Center</div>
+                              </div>
+                            </button>
+
+                            {/* Fit 16:9 Full */}
+                            <button
+                              type="button"
+                              onClick={() => handleReframe("fit")}
+                              disabled={isReframing}
+                              className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 cursor-pointer ${
+                                activeClip.layoutMode === "fit"
+                                  ? "bg-[#9DFF4A]/10 border-[#9DFF4A] text-[#9DFF4A] shadow-[0_0_15px_rgba(157,255,74,0.2)]"
+                                  : "bg-[#141412] border-[#222220] text-[#EDEDE8] hover:border-[#383834] hover:bg-[#1A1A18]"
+                              }`}
+                            >
+                              <div className="text-xl">📺</div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold leading-tight truncate">Fit 16:9 (Blur)</div>
+                                <div className="text-[10px] text-[#9A9A94] leading-tight">Full Frame Canvas</div>
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 1. Caption Style Picker */}
+                        <div className="mb-6">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <label className="micro-label text-[#9A9A94]">
+                              SELECT CAPTION STYLE TEMPLATE
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setIsGalleryOpen(true)}
+                              className="px-3 py-1 rounded-full text-xs font-bold text-[#9DFF4A] border border-[#9DFF4A]/40 bg-[#9DFF4A]/10 hover:bg-[#9DFF4A]/20 transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(157,255,74,0.15)]"
+                            >
+                              <span>⚡ Browse All 65+ WhiteStair Templates</span>
+                              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#9DFF4A] text-black font-mono font-bold">
+                                {availableTemplates.length || 90}
+                              </span>
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                            {Object.entries(CAPTION_STYLES).slice(0, 12).map(([key, st]) => {
+                              const isSelected = selectedStyle === key
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedStyle(key)
+                                    if (st.highlightColor) setActiveColor(st.highlightColor)
+                                    if (st.primaryColor) setSecondaryColor(st.primaryColor)
+                                  }}
+                                  className={`p-3 rounded-xl border text-left transition-all ${
+                                    isSelected
+                                      ? "border-[#9DFF4A] bg-[#121210] shadow-[0_0_16px_rgba(157,255,74,0.15)] ring-1 ring-[#9DFF4A]"
+                                      : "border-[#1C1C1A] bg-[#0C0C0B] hover:border-[#2F2F2B]"
+                                  }`}
+                                >
+                                  <div className="font-['Bricolage_Grotesque'] font-bold text-[13px] text-[#EDEDE8] truncate">
+                                    {st.name}
+                                  </div>
+                                  <div className="text-[11px] text-[#8A8A84] mt-0.5 truncate">
+                                    {key === "shortai" ? "Editorial Acid Green Pop" : st.animation}
+                                  </div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                          {/* Active template chip if selected from the 65+ gallery modal */}
+                          {(!CAPTION_STYLES[selectedStyle] || Object.keys(CAPTION_STYLES).indexOf(selectedStyle) >= 12) && (
+                            <div className="mt-2.5 p-2.5 rounded-xl bg-[#121210] border border-[#9DFF4A]/40 flex items-center justify-between text-xs">
+                              <span className="text-[#EDEDE8] font-bold flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-[#9DFF4A] animate-pulse"></span>
+                                Active WhiteStair Template: <span className="text-[#9DFF4A] font-mono">{availableTemplates.find(t => t.id === selectedStyle)?.name || selectedStyle}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsGalleryOpen(true)}
+                                className="text-[11px] text-[#9DFF4A] hover:underline font-bold"
+                              >
+                                Change Template
+                              </button>
                             </div>
                           )}
+                        </div>
+
+                        {/* 2. Custom Colors (Active Word & Secondary Text) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 p-4 rounded-2xl bg-[#121210] border border-[#1C1C1A] mb-4">
+                          {/* Active Highlight Color */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-[12px] font-['Geist_Mono'] font-medium text-[#EDEDE8]">
+                                ACTIVE WORD COLOR
+                              </label>
+                              <span className="text-[11px] font-mono text-[#9DFF4A]">{activeColor}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {["#9DFF4A", "#FFE600", "#00E676", "#37B6FF", "#FF3B30", "#FF6B35"].map(hex => (
+                                <button
+                                  key={hex}
+                                  type="button"
+                                  onClick={() => setActiveColor(hex)}
+                                  className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                                    activeColor.toLowerCase() === hex.toLowerCase()
+                                      ? "scale-110 border-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                                      : "border-transparent hover:scale-105"
+                                  }`}
+                                  style={{ backgroundColor: hex }}
+                                  title={hex}
+                                />
+                              ))}
+                              <div className="relative ml-auto">
+                                <input
+                                  type="color"
+                                  value={activeColor}
+                                  onChange={e => setActiveColor(e.target.value)}
+                                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0 outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Base / Secondary Text Color */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-[12px] font-['Geist_Mono'] font-medium text-[#EDEDE8]">
+                                SECONDARY TEXT COLOR
+                              </label>
+                              <span className="text-[11px] font-mono text-[#EDEDE8]">{secondaryColor}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {["#EDEDE8", "#FFFFFF", "#FDE047", "#7DF9FF", "#FF7AD9", "#111111"].map(hex => (
+                                <button
+                                  key={hex}
+                                  type="button"
+                                  onClick={() => setSecondaryColor(hex)}
+                                  className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                                    secondaryColor.toLowerCase() === hex.toLowerCase()
+                                      ? "scale-110 border-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                                      : "border-transparent hover:scale-105"
+                                  }`}
+                                  style={{ backgroundColor: hex }}
+                                  title={hex}
+                                />
+                              ))}
+                              <div className="relative ml-auto">
+                                <input
+                                  type="color"
+                                  value={secondaryColor}
+                                  onChange={e => setSecondaryColor(e.target.value)}
+                                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0 outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 3. Caption Font Size Control */}
+                        <div className="p-4 rounded-2xl bg-[#121210] border border-[#1C1C1A] mb-6">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <label className="text-[12px] font-['Geist_Mono'] font-medium text-[#EDEDE8]">
+                                CAPTION FONT SIZE
+                              </label>
+                              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#1C1C1A] text-[#9A9A94]">
+                                Scalable
+                              </span>
+                            </div>
+                            <span className="text-[13px] font-mono font-bold text-[#9DFF4A]">{captionFontSize}px</span>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                            {/* Quick Presets */}
+                            <div className="flex items-center gap-1.5 bg-[#0C0C0B] p-1 rounded-xl border border-[#1C1C1A]">
+                              {[
+                                { label: "S", size: 72, name: "Small" },
+                                { label: "M", size: 96, name: "Medium (Default)" },
+                                { label: "L", size: 120, name: "Large" },
+                                { label: "XL", size: 140, name: "Extra Large" },
+                              ].map(preset => (
+                                <button
+                                  key={preset.size}
+                                  type="button"
+                                  onClick={() => setCaptionFontSize(preset.size)}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    captionFontSize === preset.size
+                                      ? "bg-[#9DFF4A] text-black shadow-[0_0_10px_rgba(157,255,74,0.3)]"
+                                      : "text-[#9A9A94] hover:text-white hover:bg-[#1A1A18]"
+                                  }`}
+                                  title={`${preset.name} (${preset.size}px)`}
+                                >
+                                  {preset.label} <span className="text-[10px] font-normal opacity-70">({preset.size})</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Interactive Slider & Step Buttons */}
+                            <div className="flex-1 flex items-center gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setCaptionFontSize(prev => Math.max(60, prev - 4))}
+                                className="w-8 h-8 rounded-lg bg-[#0C0C0B] border border-[#1C1C1A] text-[#EDEDE8] hover:border-[#9DFF4A] font-bold text-sm flex items-center justify-center transition-colors"
+                              >
+                                -
+                              </button>
+                              <input
+                                type="range"
+                                min="60"
+                                max="150"
+                                step="4"
+                                value={captionFontSize}
+                                onChange={e => setCaptionFontSize(Number(e.target.value))}
+                                className="flex-1 h-1.5 bg-[#1C1C1A] rounded-lg appearance-none cursor-pointer accent-[#9DFF4A]"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setCaptionFontSize(prev => Math.min(150, prev + 4))}
+                                className="w-8 h-8 rounded-lg bg-[#0C0C0B] border border-[#1C1C1A] text-[#EDEDE8] hover:border-[#9DFF4A] font-bold text-sm flex items-center justify-center transition-colors"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Live Caption Visual Preview Badge */}
+                        <div className="mb-6 p-4 rounded-xl bg-[#060606] border border-[#1C1C1A] flex items-center justify-center min-h-[64px]">
+                          {(() => {
+                            const pw = (activeClip.captionSegments && activeClip.captionSegments.length > 0)
+                              ? activeClip.captionSegments.slice(0, 3).map(s => s.word)
+                              : (activeClip.title ? activeClip.title.replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean).slice(0, 3) : ["VIRAL", "MOMENTS", "CAPTURED"])
+                            const pw1 = pw[0] || "VIRAL"
+                            const pw2 = pw[1] || "MOMENTS"
+                            const pw3 = pw.slice(2).join(" ") || "CAPTURED"
+
+                            if (selectedStyle === "discipline") {
+                              return (
+                                <div className="caption-discipline text-center select-none py-1">
+                                  <span className="text-white text-[18px] mr-2 font-extrabold tracking-tight">{pw1.toLowerCase()}</span>
+                                  <span className="caption-discipline-accent text-[26px]">{`${pw2} ${pw3}`.trim().toLowerCase()}.</span>
+                                </div>
+                              )
+                            }
+                            if (selectedStyle === "crazy") {
+                              return (
+                                <div className="caption-crazy text-center select-none py-1">
+                                  <span className="text-white text-[14px] mr-2">{pw1.toUpperCase()}</span>
+                                  <span className="caption-crazy-hero text-[24px] mx-1">{pw2.toUpperCase()}</span>
+                                  <span className="text-white text-[14px] ml-2">{pw3.toUpperCase()}</span>
+                                </div>
+                              )
+                            }
+                            if (selectedStyle === "estate4") {
+                              return (
+                                <div className="caption-estate4 text-center select-none py-1">
+                                  <span className="text-white/90 text-[14px] mr-2">{`${pw1} ${pw2}`.trim()}</span>
+                                  <span className="caption-estate4-hero text-[24px] ml-1">{pw3.toUpperCase()}</span>
+                                </div>
+                              )
+                            }
+                            return (
+                              <div className="text-center select-none font-['Bricolage_Grotesque'] font-extrabold text-[18px] md:text-[22px] tracking-tight">
+                                <span style={{ color: secondaryColor }} className="mr-2">{pw1}</span>
+                                <span
+                                  style={{ color: activeColor, textShadow: `0 0 16px ${activeColor}60` }}
+                                  className="mr-2 inline-block transform scale-105"
+                                >
+                                  {pw2}
+                                </span>
+                                <span style={{ color: secondaryColor }}>{pw3}</span>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons: Apply, Trim, Download */}
+                      <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-[#1C1C1A]">
+                        <button
+                          type="button"
+                          onClick={() => handleApplyCaptionStyle(selectedStyle)}
+                          disabled={isBurningCaption}
+                          className="btn-primary text-[14px] px-6 h-[46px]"
+                        >
+                          {isBurningCaption ? (
+                            <>
+                              <RefreshCw size={16} className="animate-spin" />
+                              Applying Style & Position…
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={16} />
+                              Apply Style & Position
+                            </>
+                          )}
                         </button>
-                      );
-                    })}
-                    <div className="mt-auto pt-3 border-t border-white/[0.05] space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] text-white/25">Duration</span>
-                        <span className="text-[9px] font-mono font-bold text-white/50">0:42</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] text-white/25">Score</span>
-                        <span className="text-[9px] font-mono font-bold text-amber-400">94%</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] text-white/25">Quality</span>
-                        <span className="text-[9px] font-mono font-bold text-emerald-400">1080p</span>
+
+                        <button
+                          type="button"
+                          onClick={() => setTrimModalClip(activeClip)}
+                          className="btn-ghost text-[14px] px-5 h-[46px]"
+                        >
+                          <Scissors size={15} />
+                          Trim / Extend
+                        </button>
+
+                        <div className="flex flex-wrap items-center gap-2.5 ml-auto">
+                          {/* Option to download clean clip without captions */}
+                          <a
+                            href={`${API_ROOT}/api/download/${activeClip.id}`}
+                            download={`ShortAI_${activeClip.id}_clean_1080p.mp4`}
+                            className="px-4 h-[46px] rounded-full border border-[#2F2F2B] bg-[#121210] hover:bg-[#1A1A18] hover:border-[#EDEDE8]/40 text-[#EDEDE8] text-[13px] font-bold flex items-center gap-2 transition-all shadow-sm"
+                            title="Download raw vertical 1080p clip without any captions"
+                          >
+                            <Download size={15} className="text-[#9A9A94]" />
+                            <span>Download Without Captions</span>
+                          </a>
+
+                          {/* Download burned video with animated captions */}
+                          <a
+                            href={`${API_ROOT}/api/download/${activeClip.id}_captioned?style=${selectedStyle}&highlightColor=${encodeURIComponent(activeColor)}&textColor=${encodeURIComponent(secondaryColor)}&fontSize=${captionFontSize}&positionX=${captionPosX}&positionY=${captionPosY}`}
+                            download={`ShortAI_${activeClip.id}_captioned_1080p.mp4`}
+                            className="btn-primary text-[14px] px-6 h-[46px] bg-[#9DFF4A] text-[#060606] shadow-[0_0_20px_rgba(157,255,74,0.25)] flex items-center gap-2"
+                            title="Download 1080p MP4 with burned animated captions"
+                          >
+                            <Download size={16} />
+                            <span>Download 1080p (Captions)</span>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* ── Floating stat chips below editor ── */}
-              <div className="flex items-center justify-center gap-3 mt-5">
-                {stats.map(({ value, label }) => (
-                  <div key={label} className="flex items-center gap-2 px-4 py-2 bg-[#111113] border border-white/[0.07] rounded-full">
-                    <span className="text-[15px] font-black text-amber-400">{value}</span>
-                    <span className="text-[11px] text-white/30 font-medium">{label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Right floating clip card (9:16) ── */}
-            <div className="float-b hidden lg:block w-[148px] flex-shrink-0 mb-16 self-end">
-              <div className="relative bg-[#111113] border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: "9/16" }}>
-                <img src="https://images.unsplash.com/photo-1590004953392-5aba2e72269a?w=300&auto=format&fit=crop&q=80" alt="" className="absolute inset-0 w-full h-full object-cover opacity-60" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                <div className="absolute top-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-400/20 border border-purple-400/30 backdrop-blur-sm">
-                  <Sparkles size={8} className="text-purple-400" />
-                  <span className="text-purple-400 text-[8px] font-black">VIRAL</span>
-                </div>
-                <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/50 border border-white/10 backdrop-blur-sm">
-                  <span className="text-amber-400 text-[8px] font-black">91%</span>
-                </div>
-                <div className="absolute bottom-3 left-2 right-2">
-                  <div className="bg-black/70 backdrop-blur-sm rounded-lg px-2 py-1.5 text-center">
-                    <span className="text-white text-[9px] font-black">You need to <span className="text-amber-400">HEAR</span> this</span>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-2 px-1">
-                <div className="text-[9px] font-bold text-white/30">Reels · 1080p</div>
-                <div className="text-[8px] text-white/15 mt-0.5">0:28 duration</div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        {/* Bottom fade into next section */}
-        <div className="h-20 bg-gradient-to-b from-transparent to-[#0A0A0B]" />
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── FEATURE CHIP STRIP ────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 border-y border-white/[0.05] bg-white/[0.015] py-14">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-            {[
-              { icon: <Zap size={15} />, label: "AI Hook Detection" },
-              { icon: <Scissors size={15} />, label: "Smart 9:16 Crop" },
-              { icon: <Captions size={15} />, label: "Whisper Captions" },
-              { icon: <TrendingUp size={15} />, label: "Viral Scoring" },
-              { icon: <Globe size={15} />, label: "Hindi & English" },
-              { icon: <Sparkles size={15} />, label: "10 Caption Styles" },
-              { icon: <Palette size={15} />, label: "Custom Branding" },
-              { icon: <Share2 size={15} />, label: "Direct Publish" },
-            ].map(({ icon, label }) => (
-              <div key={label} className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-amber-500/20 hover:bg-amber-500/[0.03] transition-all group cursor-default">
-                <div className="text-amber-400/50 group-hover:text-amber-400 transition-colors">{icon}</div>
-                <span className="text-[10px] font-semibold text-white/30 group-hover:text-white/60 transition-colors text-center leading-tight">{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── HOW IT WORKS ──────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 max-w-7xl mx-auto px-6 py-28">
-        {/* Section header */}
-        <div className="text-center mb-20">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-white/40 text-[11px] font-bold tracking-widest uppercase mb-5">
-            <Clock size={10} />
-            From URL to Viral in Minutes
-          </div>
-          <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-4">
-            How ClipForge works
-          </h2>
-          <p className="text-white/35 text-[16px] max-w-lg mx-auto leading-relaxed">
-            Four steps. Zero editing skills required. Clips that actually perform.
-          </p>
-        </div>
-
-        {/* Steps */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {steps.map((step, idx) => (
-            <div key={step.number} className="relative group">
-              {/* Connector line (desktop) */}
-              {idx < steps.length - 1 && (
-                <div className="hidden lg:block absolute top-10 left-[calc(100%-0px)] w-5 h-px bg-white/[0.08] z-10" style={{ left: "calc(100% + 10px)", width: "calc(100% - 20px)", top: "40px" }} />
               )}
-
-              <div className="relative h-full bg-[#111113] border border-white/[0.06] hover:border-amber-500/20 rounded-2xl p-6 transition-all duration-300 group-hover:bg-[#141416]">
-                {/* Number */}
-                <div className="text-[48px] font-black text-white/[0.04] leading-none absolute top-4 right-5 select-none">{step.number}</div>
-
-                {/* Icon circle */}
-                <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center text-amber-400 mb-5 group-hover:bg-amber-500/15 transition-colors">
-                  {step.icon}
-                </div>
-
-                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-white/[0.04] border border-white/[0.06] text-[10px] font-bold text-white/30 mb-4">
-                  <ChevronRight size={9} className="text-amber-400" />
-                  {step.tag}
-                </div>
-
-                <h3 className="text-[16px] font-black text-white mb-2.5">{step.title}</h3>
-                <p className="text-[13px] text-white/35 leading-relaxed">{step.desc}</p>
-              </div>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── FEATURE DEEP DIVE ─────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 border-t border-white/[0.05] bg-[#0C0C0E] py-28">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/15 text-amber-400 text-[11px] font-bold tracking-widest uppercase mb-5">
-              <Sparkles size={10} />
-              Everything You Need
-            </div>
-            <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-4">
-              Built for creators who<br />
-              <span className="text-amber-400">don't have time to edit</span>
-            </h2>
-            <p className="text-white/35 text-[16px] max-w-lg mx-auto">
-              Every feature is designed to eliminate the boring parts of content creation.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {featureGrid.map(({ icon, title, desc }) => (
-              <div key={title} className="group p-5 rounded-2xl bg-[#111113] border border-white/[0.06] hover:border-amber-500/20 hover:bg-[#131315] transition-all duration-300">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/8 border border-amber-500/10 flex items-center justify-center text-amber-400/60 group-hover:text-amber-400 group-hover:bg-amber-500/12 transition-all mb-4">
-                  {icon}
-                </div>
-                <h4 className="text-[14px] font-black text-white mb-1.5">{title}</h4>
-                <p className="text-[12px] text-white/30 leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── SOCIAL PROOF ──────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 py-28">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.07] text-white/40 text-[11px] font-bold tracking-widest uppercase mb-5">
-              <Users size={10} />
-              47,000+ Creators Trust ClipForge
-            </div>
-            <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-4">
-              Real results.<br />
-              <span className="text-white/25">Real creators.</span>
-            </h2>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-5">
-            {testimonials.map((t) => (
-              <div key={t.name} className="relative group bg-[#111113] border border-white/[0.06] hover:border-amber-500/15 rounded-2xl p-7 transition-all duration-300">
-                {/* Quote icon */}
-                <Quote size={28} className="text-amber-400/10 absolute top-6 right-6" />
-
-                {/* Stars */}
-                <div className="flex items-center gap-0.5 mb-4">
-                  {[...Array(t.stars)].map((_, i) => (
-                    <Star key={i} size={12} className="text-amber-400 fill-amber-400" />
-                  ))}
+          ) : (
+            /* 4 STAGGERED TILTED PHONE CARDS (SPEC DEMO) */
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 pt-4 pb-2">
+              {/* Card 1 */}
+              <div className="phone-card p-4 md:p-5 h-[280px] md:h-[330px] flex flex-col justify-between float-card-1 select-none">
+                <div className="flex items-center justify-between">
+                  <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[11px] px-2.5 py-0.5 rounded-full">
+                    98
+                  </span>
+                  <span className="font-['Geist_Mono'] text-[10px] text-[#8A8A84]">0:28</span>
                 </div>
 
-                <p className="text-[14px] text-white/55 leading-relaxed mb-6">"{t.text}"</p>
-
-                {/* Metric chip */}
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/8 border border-emerald-500/15 text-[11px] font-black text-emerald-400 mb-6">
-                  <TrendingUp size={10} />
-                  {t.metric}
-                </div>
-
-                <div className="flex items-center gap-3 pt-4 border-t border-white/[0.05]">
-                  <div className="w-9 h-9 rounded-xl bg-amber-400 flex items-center justify-center text-[11px] font-black text-[#0A0A0B]">
-                    {t.avatar}
+                {/* Subject circular placeholder */}
+                <div className="my-auto flex items-center justify-center">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#182310] border border-[#2E421E]/60 flex items-center justify-center shadow-[inset_0_0_16px_rgba(0,0,0,0.6)]">
+                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#9DFF4A]/10 border border-[#9DFF4A]/30" />
                   </div>
-                  <div>
-                    <p className="text-[13px] font-black text-white">{t.name}</p>
-                    <p className="text-[11px] text-white/30">{t.role}</p>
+                </div>
+
+                {/* Animated word-by-word green caption */}
+                <div>
+                  <div className="font-['Bricolage_Grotesque'] font-extrabold text-[13px] md:text-[15px] leading-tight text-center tracking-tight text-[#EDEDE8]">
+                    <span className="caption-word-1 inline-block mr-1">THIS</span>
+                    <span className="caption-word-2 inline-block mr-1">CHANGES</span>
+                    <span className="caption-word-3 inline-block">EVERYTHING</span>
                   </div>
-                  <span className="ml-auto text-[11px] text-white/20 font-mono">{t.handle}</span>
+                  <div className="w-full h-[3px] bg-[#1E1E1C] rounded-full overflow-hidden mt-3 md:mt-4">
+                    <div className="h-full bg-[#9DFF4A] phone-progress" />
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── PRICING ───────────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 border-t border-white/[0.05] bg-[#0C0C0E] py-28">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/15 text-amber-400 text-[11px] font-bold tracking-widest uppercase mb-5">
-              <Award size={10} />
-              Simple, Honest Pricing
-            </div>
-            <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-4">
-              Start free.<br />
-              <span className="text-amber-400">Scale when you're ready.</span>
-            </h2>
-            <p className="text-white/35 text-[16px] max-w-lg mx-auto">
-              No hidden fees. No contracts. Cancel anytime.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-            {plans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`relative rounded-2xl p-7 transition-all duration-300 ${
-                  plan.highlight
-                    ? "bg-[#111113] border-2 border-amber-400/40 shadow-[0_0_48px_rgba(245,158,11,0.08)]"
-                    : "bg-[#111113] border border-white/[0.07] hover:border-white/[0.12]"
-                }`}
-              >
-                {plan.badge && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400 text-[10px] font-black text-[#0A0A0B] tracking-wide">
-                    <Flame size={9} strokeWidth={3} />
-                    {plan.badge}
-                  </div>
-                )}
-
-                <div className="mb-6">
-                  <p className="text-[11px] font-bold tracking-widest uppercase text-white/30 mb-1">{plan.name}</p>
-                  <div className="flex items-baseline gap-1 mb-1.5">
-                    <span className="text-4xl font-black text-white">{plan.price}</span>
-                    <span className="text-[13px] text-white/30 font-medium">{plan.period}</span>
-                  </div>
-                  <p className="text-[12px] text-white/25">{plan.desc}</p>
+              {/* Card 2 */}
+              <div className="phone-card p-4 md:p-5 h-[280px] md:h-[330px] flex flex-col justify-between float-card-2 select-none">
+                <div className="flex items-center justify-between">
+                  <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[11px] px-2.5 py-0.5 rounded-full">
+                    95
+                  </span>
+                  <span className="font-['Geist_Mono'] text-[10px] text-[#8A8A84]">0:42</span>
                 </div>
 
-                <div className="space-y-3 mb-8">
-                  {plan.features.map((feat) => (
-                    <div key={feat} className="flex items-center gap-2.5">
-                      <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${plan.highlight ? "bg-amber-400/15" : "bg-white/[0.06]"}`}>
-                        <Check size={9} className={plan.highlight ? "text-amber-400" : "text-white/40"} strokeWidth={3} />
-                      </div>
-                      <span className="text-[13px] text-white/45">{feat}</span>
-                    </div>
-                  ))}
+                <div className="my-auto flex items-center justify-center">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#182310] border border-[#2E421E]/60 flex items-center justify-center shadow-[inset_0_0_16px_rgba(0,0,0,0.6)]">
+                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#9DFF4A]/10 border border-[#9DFF4A]/30" />
+                  </div>
                 </div>
 
-                <Link
-                  to="/register"
-                  className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-black transition-all duration-200 ${
-                    plan.highlight
-                      ? "bg-amber-400 hover:bg-amber-300 text-[#0A0A0B] shadow-[0_0_24px_rgba(245,158,11,0.2)] hover:shadow-[0_0_32px_rgba(245,158,11,0.3)]"
-                      : "bg-white/[0.05] hover:bg-white/[0.09] text-white/70 border border-white/[0.07]"
-                  }`}
-                >
-                  {plan.cta}
-                  <ArrowRight size={13} strokeWidth={2.5} />
-                </Link>
+                <div>
+                  <div className="font-['Bricolage_Grotesque'] font-extrabold text-[13px] md:text-[15px] leading-tight text-center tracking-tight text-[#EDEDE8]">
+                    <span className="caption-word-1 inline-block mr-1">NOBODY</span>
+                    <span className="caption-word-2 inline-block mr-1">TELLS</span>
+                    <span className="caption-word-3 inline-block">YOU</span>
+                  </div>
+                  <div className="w-full h-[3px] bg-[#1E1E1C] rounded-full overflow-hidden mt-3 md:mt-4">
+                    <div className="h-full bg-[#9DFF4A] phone-progress" />
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
 
-          <p className="text-center text-[12px] text-white/20 mt-8">
-            All plans include a 7-day free trial. No credit card required for Starter.
+              {/* Card 3 */}
+              <div className="phone-card p-4 md:p-5 h-[280px] md:h-[330px] flex flex-col justify-between float-card-3 select-none">
+                <div className="flex items-center justify-between">
+                  <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[11px] px-2.5 py-0.5 rounded-full">
+                    92
+                  </span>
+                  <span className="font-['Geist_Mono'] text-[10px] text-[#8A8A84]">0:34</span>
+                </div>
+
+                <div className="my-auto flex items-center justify-center">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#182310] border border-[#2E421E]/60 flex items-center justify-center shadow-[inset_0_0_16px_rgba(0,0,0,0.6)]">
+                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#9DFF4A]/10 border border-[#9DFF4A]/30" />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="font-['Bricolage_Grotesque'] font-extrabold text-[13px] md:text-[15px] leading-tight text-center tracking-tight text-[#EDEDE8]">
+                    <span className="caption-word-1 inline-block mr-1">WAIT</span>
+                    <span className="caption-word-2 inline-block mr-1">FOR</span>
+                    <span className="caption-word-3 inline-block">IT</span>
+                  </div>
+                  <div className="w-full h-[3px] bg-[#1E1E1C] rounded-full overflow-hidden mt-3 md:mt-4">
+                    <div className="h-full bg-[#9DFF4A] phone-progress" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4 */}
+              <div className="phone-card p-4 md:p-5 h-[280px] md:h-[330px] flex flex-col justify-between float-card-4 select-none">
+                <div className="flex items-center justify-between">
+                  <span className="bg-[#9DFF4A] text-[#060606] font-['Geist_Mono'] font-bold text-[11px] px-2.5 py-0.5 rounded-full">
+                    89
+                  </span>
+                  <span className="font-['Geist_Mono'] text-[10px] text-[#8A8A84]">0:50</span>
+                </div>
+
+                <div className="my-auto flex items-center justify-center">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#182310] border border-[#2E421E]/60 flex items-center justify-center shadow-[inset_0_0_16px_rgba(0,0,0,0.6)]">
+                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#9DFF4A]/10 border border-[#9DFF4A]/30" />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="font-['Bricolage_Grotesque'] font-extrabold text-[13px] md:text-[15px] leading-tight text-center tracking-tight text-[#EDEDE8]">
+                    <span className="caption-word-1 inline-block mr-1">HERE'S</span>
+                    <span className="caption-word-2 inline-block mr-1">THE</span>
+                    <span className="caption-word-3 inline-block">CATCH</span>
+                  </div>
+                  <div className="w-full h-[3px] bg-[#1E1E1C] rounded-full overflow-hidden mt-3 md:mt-4">
+                    <div className="h-full bg-[#9DFF4A] phone-progress" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footnote */}
+          <p className="text-center font-['Geist_Mono'] text-[12px] text-[#8A8A84] mt-8 select-none">
+            Sample interface. Scores are illustrative.
           </p>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── CTA BANNER ────────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <section className="relative z-10 py-28">
-        <div className="max-w-4xl mx-auto px-6">
-          <div className="relative rounded-3xl overflow-hidden border border-amber-400/20 bg-[#111113]">
-            {/* Inner glow */}
-            <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at 50% 100%, rgba(245,158,11,0.08), transparent 70%)" }} />
-            {/* Grid texture */}
-            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-
-            <div className="relative z-10 text-center px-8 py-16">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[11px] font-bold tracking-widest uppercase mb-7">
-                <Zap size={10} strokeWidth={3} />
-                Free Forever Plan Available
-              </div>
-
-              <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white mb-5">
-                Your next viral clip<br />
-                is one paste away.
-              </h2>
-
-              <p className="text-white/35 text-[16px] mb-10 max-w-md mx-auto leading-relaxed">
-                47,000+ creators are already forging their way to the top. Join them — it takes less than 30 seconds to start.
-              </p>
-
-              <div className="flex flex-wrap items-center justify-center gap-4">
-                <Link to="/register" className="inline-flex items-center gap-2.5 px-8 py-4 bg-amber-400 hover:bg-amber-300 text-[#0A0A0B] text-[15px] font-black rounded-xl transition-all duration-200 hover:scale-[1.02] shadow-[0_0_40px_rgba(245,158,11,0.25)] hover:shadow-[0_0_60px_rgba(245,158,11,0.35)]">
-                  Start Forging Free
-                  <ArrowRight size={16} strokeWidth={2.5} />
-                </Link>
-                <Link to="/login" className="inline-flex items-center gap-2 px-6 py-4 text-white/40 hover:text-white text-[14px] font-semibold transition-colors">
-                  Already have an account →
-                </Link>
-              </div>
-
-              {/* Social proof mini row */}
-              <div className="flex items-center justify-center gap-6 mt-10 pt-8 border-t border-white/[0.05]">
-                {[
-                  { icon: <Users size={13} />, text: "47K+ creators" },
-                  { icon: <TrendingUp size={13} />, text: "2.4M clips made" },
-                  { icon: <Star size={13} />, text: "4.9/5 rating" },
-                ].map(({ icon, text }) => (
-                  <div key={text} className="flex items-center gap-1.5 text-[12px] text-white/25">
-                    <span className="text-amber-400/50">{icon}</span>
-                    {text}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* ── 4. MARQUEE STRIP ── */}
+      <section className="py-12 border-y border-[#1C1C1A] overflow-hidden select-none relative bg-[#060606]">
+        <div className="marquee-inner">
+          <span className="marquee-word-green">Shorts</span>
+          <span className="marquee-word-stroke">Reels</span>
+          <span className="marquee-word-green">TikTok</span>
+          <span className="marquee-word-stroke">9:16</span>
+          <span className="marquee-word-green">Shorts</span>
+          <span className="marquee-word-stroke">Reels</span>
+          <span className="marquee-word-green">TikTok</span>
+          <span className="marquee-word-stroke">9:16</span>
+          {/* Duplicated for seamless -50% loop */}
+          <span className="marquee-word-green">Shorts</span>
+          <span className="marquee-word-stroke">Reels</span>
+          <span className="marquee-word-green">TikTok</span>
+          <span className="marquee-word-stroke">9:16</span>
+          <span className="marquee-word-green">Shorts</span>
+          <span className="marquee-word-stroke">Reels</span>
+          <span className="marquee-word-green">TikTok</span>
+          <span className="marquee-word-stroke">9:16</span>
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════════ */}
-      {/* ── FOOTER ────────────────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════════════════ */}
-      <footer className="relative z-10 border-t border-white/[0.05] py-14">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid sm:grid-cols-4 gap-10 mb-12">
-            {/* Brand col */}
-            <div className="sm:col-span-1">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center">
-                  <Zap size={15} className="text-[#0A0A0B]" strokeWidth={3} />
+      {/* ── 5. BENTO FEATURES GRID ── */}
+      <section id="features" className="max-w-[1240px] mx-auto px-6 py-28">
+        <div className="mb-14">
+          <span className="micro-label font-['Geist_Mono'] text-[#9A9A94] tracking-[0.14em]">
+            FEATURES
+          </span>
+          <h2 className="display-title text-[#EDEDE8] text-[38px] md:text-[56px] mt-2">
+            Cut like an editor.{" "}
+            <span className="accent-phrase">Think like a hit.</span>
+          </h2>
+        </div>
+
+        {/* Bento Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Row 1, Card 1: Wide Card (Virality Score with Animated Ring 98) */}
+          <div className="bento-card md:col-span-2 min-h-[320px] flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">
+                VIRALITY SCORE
+              </span>
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[32px] md:text-[38px] text-[#EDEDE8] mt-2 tracking-tight">
+                Every clip, ranked.
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[16px] max-w-[440px] mt-2">
+                Our AI analyzes hook strength, retention curves, and narrative resolution to rank clips from 1 to 100.
+              </p>
+            </div>
+
+            {/* Visual: Animated SVG Score Ring 98 */}
+            <div className="flex items-center justify-end mt-6">
+              <div className="relative w-36 h-36 flex items-center justify-center">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    className="stroke-[#1C1C1A] stroke-[7] fill-none"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    className="stroke-[#9DFF4A] stroke-[7] fill-none score-ring-circle"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="font-['Bricolage_Grotesque'] font-extrabold text-[42px] leading-none text-[#EDEDE8]">
+                    98
+                  </span>
+                  <span className="font-['Geist_Mono'] text-[10px] text-[#9DFF4A] uppercase tracking-wider font-semibold mt-0.5">
+                    Viral
+                  </span>
                 </div>
-                <span className="text-[15px] font-black tracking-tight text-white">
-                  Clip<span className="text-amber-400">Forge</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 1, Card 2: Narrow Card (Face Tracking with Drifting Bounding Box) */}
+          <div className="bento-card min-h-[320px] flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">
+                FACE TRACKING
+              </span>
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[28px] md:text-[32px] text-[#EDEDE8] mt-2 tracking-tight">
+                Speaker stays framed.
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[15px] mt-2">
+                Dynamic pan-and-scan centers the active speaker automatically.
+              </p>
+            </div>
+
+            {/* Visual: Drifting Face Tracking Box */}
+            <div className="relative h-36 flex items-center justify-center overflow-hidden rounded-xl bg-[#080807] border border-[#1C1C1A] mt-4">
+              <div className="face-tracking-box w-24 h-24 border-2 border-[#9DFF4A] rounded-lg relative flex flex-col justify-between p-1.5 shadow-[0_0_20px_rgba(157,255,74,0.25)]">
+                {/* Corner Crosshairs */}
+                <span className="absolute -top-1 -left-1 w-2.5 h-2.5 border-t-2 border-l-2 border-[#9DFF4A]" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 border-t-2 border-r-2 border-[#9DFF4A]" />
+                <span className="absolute -bottom-1 -left-1 w-2.5 h-2.5 border-b-2 border-l-2 border-[#9DFF4A]" />
+                <span className="absolute -bottom-1 -right-1 w-2.5 h-2.5 border-b-2 border-r-2 border-[#9DFF4A]" />
+
+                <span className="font-['Geist_Mono'] text-[9px] bg-[#9DFF4A] text-[#060606] font-bold px-1 rounded self-start">
+                  SPEAKER 01
+                </span>
+                <span className="font-['Geist_Mono'] text-[8px] text-[#9DFF4A] self-end">
+                  99.4%
                 </span>
               </div>
-              <p className="text-[12px] text-white/25 leading-relaxed mb-4">
-                AI-powered clip creation for creators who want to grow faster without editing longer.
-              </p>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-500/8 border border-emerald-500/15 text-[10px] font-bold text-emerald-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                All systems operational
-              </div>
             </div>
-
-            {/* Links cols */}
-            {[
-              {
-                heading: "Product",
-                links: ["Features", "How it Works", "Pricing", "Changelog", "Roadmap"],
-              },
-              {
-                heading: "Resources",
-                links: ["Blog", "Tutorials", "API Docs", "Help Centre", "Status"],
-              },
-              {
-                heading: "Company",
-                links: ["About", "Careers", "Press Kit", "Privacy", "Terms"],
-              },
-            ].map(({ heading, links }) => (
-              <div key={heading}>
-                <p className="text-[11px] font-black tracking-widest uppercase text-white/20 mb-4">{heading}</p>
-                <ul className="space-y-2.5">
-                  {links.map((link) => (
-                    <li key={link}>
-                      <a href="#" className="text-[13px] text-white/30 hover:text-white/70 transition-colors">{link}</a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-8 border-t border-white/[0.05]">
-            <p className="text-[11px] text-white/15">© 2025 ClipForge Inc. All rights reserved. Made with ⚡ in India.</p>
-            <div className="flex items-center gap-5">
-              {["Privacy", "Terms", "Cookies"].map((link) => (
-                <a key={link} href="#" className="text-[11px] text-white/20 hover:text-white/45 transition-colors">{link}</a>
-              ))}
+          {/* Row 2, Card 1: Captions (Phone Peeking from bottom) */}
+          <div className="bento-card min-h-[300px] flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">
+                CAPTIONS
+              </span>
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[26px] md:text-[28px] text-[#EDEDE8] mt-2 tracking-tight">
+                Styles that stop the scroll.
+              </h3>
+            </div>
+
+            {/* Visual: Phone peeking from bottom */}
+            <div className="relative h-28 overflow-hidden flex items-end justify-center mt-4">
+              <div className="w-48 h-32 bg-[#121B0D] border-t-2 border-x-2 border-[#2A3F1E] rounded-t-2xl p-3 shadow-2xl flex flex-col justify-start">
+                <span className="w-10 h-1 bg-[#2A3F1E] rounded-full mx-auto mb-3" />
+                <p className="font-['Bricolage_Grotesque'] font-extrabold text-[12px] text-center text-[#EDEDE8]">
+                  WATCH <span className="text-[#9DFF4A] underline decoration-2">THIS</span> NOW
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2, Card 2: Hook First */}
+          <div className="bento-card min-h-[300px] flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">
+                HOOK FIRST
+              </span>
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[26px] md:text-[28px] text-[#EDEDE8] mt-2 tracking-tight">
+                Starts where it hits.
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[15px] mt-2">
+                No awkward intro, dead air, or rambling. Cuts straight to the viral payoff.
+              </p>
+            </div>
+
+            <div className="py-3 px-4 rounded-xl bg-[#121210] border border-[#1C1C1A] mt-6 flex items-center justify-between">
+              <span className="font-['Geist_Mono'] text-[12px] text-[#9A9A94]">Intro trimmed</span>
+              <span className="font-['Geist_Mono'] text-[12px] text-[#9DFF4A] font-semibold">-42.5s</span>
+            </div>
+          </div>
+
+          {/* Row 2, Card 3: Export */}
+          <div className="bento-card min-h-[300px] flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">
+                EXPORT
+              </span>
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[26px] md:text-[28px] text-[#EDEDE8] mt-2 tracking-tight">
+                One click. Full HD.
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[15px] mt-2">
+                Crisp 1080p MP4 exports with embedded captions and custom aspect ratios.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 mt-6">
+              <span className="px-3 py-1 rounded-full bg-[#182310] border border-[#2A3E1B] text-[#9DFF4A] font-['Geist_Mono'] text-[11px] font-semibold">
+                1080 × 1920
+              </span>
+              <span className="px-3 py-1 rounded-full bg-[#121210] border border-[#1C1C1A] text-[#EDEDE8] font-['Geist_Mono'] text-[11px]">
+                60 FPS
+              </span>
             </div>
           </div>
         </div>
-      </footer>
-    </div>
-  );
-};
+      </section>
 
-export default LandingPage;
+      {/* ── 6. PROCESS SECTION ── */}
+      <section id="process" className="max-w-[1240px] mx-auto px-6 py-28 border-t border-[#1C1C1A]">
+        <div className="mb-16">
+          <span className="micro-label font-['Geist_Mono'] text-[#9A9A94] tracking-[0.14em]">
+            PROCESS
+          </span>
+          <h2 className="display-title text-[#EDEDE8] text-[38px] md:text-[56px] mt-2">
+            Link to clips{" "}
+            <span className="accent-phrase">in minutes.</span>
+          </h2>
+        </div>
+
+        {/* 3 Process Rows with hover animation */}
+        <div className="flex flex-col">
+          {/* Row 01 */}
+          <div
+            onClick={focusInput}
+            className="process-row group"
+          >
+            <span className="process-numeral">01</span>
+            <div>
+              <h3 className="font-['Bricolage_Grotesque'] font-bold text-[32px] md:text-[36px] text-[#EDEDE8] group-hover:text-white transition-colors">
+                Paste
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[16px] md:text-[18px] mt-1">
+                Drop in any YouTube link.
+              </p>
+            </div>
+          </div>
+
+          {/* Row 02 */}
+          <div
+            onClick={focusInput}
+            className="process-row group"
+          >
+            <span className="process-numeral">02</span>
+            <div>
+              <h3 className="font-['Bricolage_Grotesque'] font-bold text-[32px] md:text-[36px] text-[#EDEDE8] group-hover:text-white transition-colors">
+                Analyze
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[16px] md:text-[18px] mt-1">
+                AI scans audio, speech and faces to find peak moments.
+              </p>
+            </div>
+          </div>
+
+          {/* Row 03 */}
+          <div
+            onClick={focusInput}
+            className="process-row group border-b border-[#1C1C1A]"
+          >
+            <span className="process-numeral">03</span>
+            <div>
+              <h3 className="font-['Bricolage_Grotesque'] font-bold text-[32px] md:text-[36px] text-[#EDEDE8] group-hover:text-white transition-colors">
+                Post
+              </h3>
+              <p className="body-text text-[#9A9A94] text-[16px] md:text-[18px] mt-1">
+                Pick a caption style, trim, download.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── 7. PRICING SECTION ── */}
+      <section id="pricing" className="max-w-[1240px] mx-auto px-6 py-28 border-t border-[#1C1C1A]">
+        <div className="mb-16 text-center">
+          <span className="micro-label font-['Geist_Mono'] text-[#9A9A94] tracking-[0.14em]">
+            PRICING
+          </span>
+          <h2 className="display-title text-[#EDEDE8] text-[38px] md:text-[56px] mt-2">
+            Start free.{" "}
+            <span className="accent-phrase">Scale later.</span>
+          </h2>
+        </div>
+
+        {/* 3 Pricing Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+          {/* Card 1: Free */}
+          <div className="bento-card p-8 flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">FREE</span>
+              <div className="mt-4 mb-6">
+                <span className="font-['Bricolage_Grotesque'] font-extrabold text-[36px] text-[#EDEDE8]">
+                  [YOUR PRICE]
+                </span>
+                <span className="text-[#9A9A94] text-[14px] ml-2 font-['Geist']">/ month</span>
+              </div>
+              <ul className="space-y-3 text-[15px] text-[#9A9A94] mb-8">
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> 60 upload mins / mo
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Auto hook detection
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> 720p exports
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Standard caption styles
+                </li>
+              </ul>
+            </div>
+            <button onClick={focusInput} className="btn-ghost w-full justify-center">
+              Start free
+            </button>
+          </div>
+
+          {/* Card 2: Creator (Highlighted with 1px green border & glow) */}
+          <div
+            className="bento-card p-8 flex flex-col justify-between relative"
+            style={{
+              borderColor: "var(--green)",
+              boxShadow: "0 0 36px -8px var(--green-glow)",
+            }}
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="micro-label font-['Geist_Mono'] text-[#9DFF4A]">CREATOR</span>
+                <span className="font-['Geist_Mono'] text-[10px] bg-[#9DFF4A] text-[#060606] font-bold px-2 py-0.5 rounded-full uppercase">
+                  Popular
+                </span>
+              </div>
+              <div className="mt-4 mb-6">
+                <span className="font-['Bricolage_Grotesque'] font-extrabold text-[36px] text-[#EDEDE8]">
+                  [YOUR PRICE]
+                </span>
+                <span className="text-[#9A9A94] text-[14px] ml-2 font-['Geist']">/ month</span>
+              </div>
+              <ul className="space-y-3 text-[15px] text-[#EDEDE8] mb-8">
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> 300 upload mins / mo
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> 1080p Full HD exports
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> All 33 animated styles
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> AI viral scoring (1-100)
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Priority render queue
+                </li>
+              </ul>
+            </div>
+            <button onClick={focusInput} className="btn-primary w-full justify-center">
+              Get Creator
+            </button>
+          </div>
+
+          {/* Card 3: Studio */}
+          <div className="bento-card p-8 flex flex-col justify-between">
+            <div>
+              <span className="micro-label font-['Geist_Mono'] text-[#9A9A94]">STUDIO</span>
+              <div className="mt-4 mb-6">
+                <span className="font-['Bricolage_Grotesque'] font-extrabold text-[36px] text-[#EDEDE8]">
+                  [YOUR PRICE]
+                </span>
+                <span className="text-[#9A9A94] text-[14px] ml-2 font-['Geist']">/ month</span>
+              </div>
+              <ul className="space-y-3 text-[15px] text-[#9A9A94] mb-8">
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Unlimited upload mins
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> 4K / 1080p exports
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Custom fonts & templates
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> Multi-speaker auto tracking
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="text-[#9DFF4A]">✓</span> API access & dedicated GPU
+                </li>
+              </ul>
+            </div>
+            <button onClick={focusInput} className="btn-ghost w-full justify-center">
+              Get Studio
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── 8. FINAL CTA ── */}
+      <section className="max-w-[1240px] mx-auto px-6 py-36 text-center border-t border-[#1C1C1A]">
+        <h2 className="hero-title text-[#EDEDE8] mb-10 select-none">
+          Drop a link.
+          <br />
+          <span className="accent-phrase">Go viral.</span>
+        </h2>
+        <button
+          onClick={focusInput}
+          className="btn-primary text-[16px] px-8 h-[56px] text-[16px]"
+        >
+          Generate clips free
+        </button>
+      </section>
+
+      {/* ── 9. FOOTER ── */}
+      <footer className="border-t border-[#1C1C1A] py-12 px-6 max-w-[1240px] mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-3">
+          <span className="font-['Bricolage_Grotesque'] font-extrabold text-[20px] text-[#EDEDE8]">
+            Short
+          </span>
+          <span className="font-['Instrument_Serif'] italic font-normal text-[23px] text-[#9DFF4A] -ml-2">
+            ai
+          </span>
+          <span className="text-[13px] text-[#8A8A84] font-['Geist_Mono'] ml-3">
+            © 2026 ShortAI. All rights reserved.
+          </span>
+        </div>
+
+        <div className="flex items-center gap-6 text-[13px] text-[#8A8A84] font-['Geist']">
+          <a href="#privacy" className="hover:text-[#EDEDE8] transition-colors">
+            Privacy
+          </a>
+          <a href="#terms" className="hover:text-[#EDEDE8] transition-colors">
+            Terms
+          </a>
+          <a href="https://twitter.com" target="_blank" rel="noreferrer" className="hover:text-[#EDEDE8] transition-colors">
+            Twitter
+          </a>
+          <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-[#EDEDE8] transition-colors">
+            GitHub
+          </a>
+        </div>
+      </footer>
+
+      {/* ── EXTEND / TRIM MODAL ── */}
+      {trimModalClip && (
+        <ExtendCutModal
+          clip={trimModalClip}
+          videoUrl={sessionId ? `${API_ROOT}/api/preview-original/${sessionId}` : getFullUrl(trimModalClip.videoUrl)}
+          originalVideoUrl={videoInfo?.url || url}
+          totalDuration={videoInfo?.duration || trimModalClip?.maxEndTime || 5239}
+          formatDuration={(s) => {
+            const m = Math.floor(s / 60)
+            const sec = Math.floor(s % 60).toString().padStart(2, "0")
+            return `${m}:${sec}`
+          }}
+          onClose={() => setTrimModalClip(null)}
+          onSave={handleExtendSave}
+        />
+      )}
+
+      {/* ── 9:16 VERTICAL REEL FULLSCREEN MODAL ── */}
+      {isReelFullscreen && (
+        <div
+          className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-2 sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsReelFullscreen(false)
+          }}
+        >
+          <button
+            onClick={() => setIsReelFullscreen(false)}
+            className="absolute top-5 right-5 z-50 w-11 h-11 rounded-full bg-[#121210] border border-[#2F2F2B] text-white hover:text-[#9DFF4A] hover:border-[#9DFF4A] transition-colors flex items-center justify-center cursor-pointer shadow-xl"
+            title="Close Fullscreen (Esc)"
+          >
+            <X size={20} />
+          </button>
+
+          <div className="relative w-full max-w-[420px] aspect-[9/16] max-h-[96vh] rounded-[28px] overflow-hidden bg-black border border-[#2F2F2B] shadow-2xl flex flex-col justify-between">
+            <video
+              key={captionedVideoUrl || activeClip?.videoUrl}
+              src={captionedVideoUrl || getFullUrl(activeClip?.videoUrl)}
+              poster={activeClip?.thumbnail ? getFullUrl(activeClip.thumbnail) : undefined}
+              preload="auto"
+              playsInline
+              crossOrigin="anonymous"
+              controls
+              autoPlay
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── WHITESTAIR 65+ TEMPLATE GALLERY MODAL ── */}
+      {isGalleryOpen && (() => {
+        const templateList = availableTemplates.length > 0 ? availableTemplates : Object.values(CAPTION_STYLES)
+        const q = gallerySearch.toLowerCase().trim()
+        const filtered = templateList.filter(t => {
+          const matchSearch = !q || (
+            (t.name && t.name.toLowerCase().includes(q)) ||
+            (t.id && t.id.toLowerCase().includes(q)) ||
+            (t.fontFamily && t.fontFamily.toLowerCase().includes(q)) ||
+            (t.description && t.description.toLowerCase().includes(q)) ||
+            (t.tags && t.tags.some(tag => tag.toLowerCase().includes(q)))
+          )
+          if (!matchSearch) return false
+
+          if (galleryFilter === "all") return true
+          if (galleryFilter === "featured") return ["shortai", "crazy", "discipline", "estate-3", "mrbeast-classic", "impact-glow", "vogue", "spark", "red-wipe", "creator-3", "glowly-1", "cyber"].includes(t.id) || (t.tags && t.tags.includes("Featured"))
+          if (galleryFilter === "dynamic") return (t.tags && (t.tags.includes("Dynamic") || t.tags.includes("Three-word"))) || ["appear-zoom", "slam", "bounce-drop", "pop-in"].includes(t.entrance)
+          if (galleryFilter === "3d") return t.id.includes("crazy") || t.id.includes("estate") || (t.tags && (t.tags.includes("Crazy") || t.tags.includes("Blend")))
+          if (galleryFilter === "clean") return t.id.includes("clean") || t.id.includes("solo") || t.id.includes("editor") || (t.tags && t.tags.includes("Clean"))
+          if (galleryFilter === "bold") return ["Archivo Black", "Bebas Neue", "Anton", "Montserrat", "Oswald"].includes(t.fontFamily)
+          if (galleryFilter === "editorial") return t.id === "shortai" || t.id === "discipline" || (t.lineFontFamilies && t.lineFontFamilies.length > 0) || (t.tags && t.tags.includes("Editorial"))
+          if (galleryFilter === "karaoke") return t.karaoke || (t.tags && t.tags.includes("Karaoke"))
+          return true
+        })
+
+        return (
+          <div
+            className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsGalleryOpen(false)
+            }}
+          >
+            <div className="bg-[#0C0C0B] border border-[#232321] rounded-3xl w-full max-w-6xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+              {/* Header */}
+              <div className="p-6 border-b border-[#1C1C1A] flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xl sm:text-2xl font-bold font-['Bricolage_Grotesque'] text-[#EDEDE8]">
+                      WhiteStair Caption Template Library
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-[#9DFF4A]/15 text-[#9DFF4A] border border-[#9DFF4A]/30">
+                      {filtered.length} of {templateList.length} Templates
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#8A8A84] mt-1 font-sans">
+                    Every authentic template from WhiteStair with precision typography, multi-line stacking, and per-word entrance motion.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGalleryOpen(false)}
+                  className="w-10 h-10 rounded-full bg-[#161614] hover:bg-[#232320] text-[#9A9A94] hover:text-white flex items-center justify-center transition-colors text-lg"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Search & Category Pills */}
+              <div className="p-4 sm:px-6 bg-[#080807] border-b border-[#1C1C1A] flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Search templates (e.g. Crazy, Discipline, MrBeast, Impact, Red Wipe, Estate...)"
+                    value={gallerySearch}
+                    onChange={(e) => setGallerySearch(e.target.value)}
+                    className="w-full bg-[#121210] border border-[#1F1F1D] rounded-xl px-3.5 py-2 text-sm text-[#EDEDE8] placeholder-[#5A5A55] focus:outline-none focus:border-[#9DFF4A]"
+                  />
+                  {gallerySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setGallerySearch("")}
+                      className="absolute right-3 top-2.5 text-xs text-[#8A8A84] hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                  {[
+                    { id: "all", label: "All Templates" },
+                    { id: "featured", label: "Featured" },
+                    { id: "dynamic", label: "Dynamic & Motion" },
+                    { id: "clean", label: "Clean & Minimal" },
+                    { id: "3d", label: "3D & Metallic" },
+                    { id: "bold", label: "Bold & Punch" },
+                    { id: "editorial", label: "Editorial & Cursive" },
+                    { id: "karaoke", label: "Karaoke" },
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setGalleryFilter(cat.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                        galleryFilter === cat.id
+                          ? "bg-[#9DFF4A] text-black font-bold shadow-[0_0_12px_rgba(157,255,74,0.3)]"
+                          : "bg-[#141412] text-[#8A8A84] hover:text-white hover:bg-[#1C1C1A]"
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Template Cards Grid */}
+              <div className="p-4 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                {filtered.map((t) => {
+                  const isCurrent = selectedStyle === t.id
+                  const font = t.fontFamily || "Montserrat"
+                  const cardColor = t.accent || t.color || "#9DFF4A"
+                  const baseColor = t.color || "#EDEDE8"
+
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => {
+                        setSelectedStyle(t.id)
+                        if (t.accent) setActiveColor(t.accent)
+                        if (t.color && t.color !== "#000000") setSecondaryColor(t.color)
+                        setIsGalleryOpen(false)
+                      }}
+                      className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between ${
+                        isCurrent
+                          ? "border-[#9DFF4A] bg-[#121210] shadow-[0_0_20px_rgba(157,255,74,0.18)] ring-1 ring-[#9DFF4A]"
+                          : "border-[#1A1A18] bg-[#0E0E0D] hover:border-[#33332E] hover:bg-[#141412]"
+                      }`}
+                    >
+                      {/* Top: Name & Badges */}
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <h4 className="font-['Bricolage_Grotesque'] font-bold text-[15px] text-[#EDEDE8] truncate">
+                            {t.name}
+                          </h4>
+                          {isCurrent && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#9DFF4A] text-black font-bold">
+                              ACTIVE
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Visual Typography Mockup Box */}
+                        <div className="my-2.5 p-3 rounded-xl bg-black/60 border border-[#1A1A18] min-h-[64px] flex items-center justify-center text-center">
+                          {t.id === "discipline" ? (
+                            <div className="caption-discipline">
+                              <span className="text-white text-[13px] mr-1 font-bold">visual</span>
+                              <span className="caption-discipline-accent text-[18px]">storytelling.</span>
+                            </div>
+                          ) : t.id.includes("crazy") ? (
+                            <div className="caption-crazy">
+                              <div className="text-[10px] text-white">YOUR</div>
+                              <div className="caption-crazy-hero text-[15px]">CAPTIONS</div>
+                              <div className="text-[10px] text-white">LOOK</div>
+                            </div>
+                          ) : t.id.includes("estate") ? (
+                            <div className="caption-estate4">
+                              <div className="text-[10px] text-white/90">trending templates</div>
+                              <div className="caption-estate4-hero text-[15px]">DESIGNED FOR</div>
+                            </div>
+                          ) : (
+                            <div className="font-bold text-[14px] tracking-tight">
+                              <span style={{ color: baseColor }}>YOUR </span>
+                              <span style={{ color: cardColor }} className="scale-105 inline-block">CAPTIONS</span>
+                              <span style={{ color: baseColor }}> LOOK</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bottom Info: Font & Entrance */}
+                      <div className="pt-2 border-t border-[#181816] flex items-center justify-between text-[11px] text-[#7A7A75] font-mono">
+                        <span className="truncate max-w-[110px]" title={font}>{font}</span>
+                        <span className="text-[#9DFF4A] uppercase text-[10px] truncate max-w-[90px]">
+                          {t.entrance || (t.karaoke ? "karaoke" : "pop-in")}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}

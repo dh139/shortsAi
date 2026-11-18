@@ -1,111 +1,20 @@
-import { useState, useEffect } from "react"
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom"
-import axios from "axios"
-import Navbar from "./components/Navbar"
-import Login from "./components/Login"
-import Register from "./components/Register"
-import Dashboard from "./components/Dashboard"
 import LandingPage from "./components/LandingPage"
+import Dashboard from "./components/Dashboard"
 import "./App.css"
 
-// Simple axios interceptor (NO refresh token)
-const setupAxiosInterceptor = () => {
-  axios.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      const requestUrl = error.config?.url || ""
-
-      // ✅ Don't intercept the verify call itself — let checkAuthStatus handle it
-      if (
-        error.response?.status === 401 &&
-        !requestUrl.includes("/auth/verify")
-      ) {
-        localStorage.removeItem("token")
-        delete axios.defaults.headers.common["Authorization"]
-        window.location.href = "/login"
-      }
-      return Promise.reject(error)
-    }
-  )
-}
-
 function App() {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setupAxiosInterceptor()
-    checkAuthStatus()
-  }, [])
-
-  const checkAuthStatus = async () => {
-  try {
-    const token = localStorage.getItem("token")
-
-    if (!token) {
-      setLoading(false)  // ✅ Early return, no token
-      return
-    }
-
-    axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
-
-    const response = await axios.get("http://localhost:5000/api/auth/verify")
-    setUser(response.data.user)
-
-  } catch (error) {
-    // ✅ Silently clear bad/expired token — let the Router handle redirect
-    localStorage.removeItem("token")
-    delete axios.defaults.headers.common["Authorization"]
-    setUser(null)
-  } finally {
-    setLoading(false)
-  }
-}
-
-  const handleLogin = (userData) => {
-    setUser(userData.user)
-
-    const token = userData.token
-    localStorage.setItem("token", token)
-
-    axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
-  }
-
-  const handleLogout = () => {
-    setUser(null)
-    localStorage.removeItem("token")
-    delete axios.defaults.headers.common["Authorization"]
-  }
-
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-spinner"></div>
-        <p>Loading...</p>
-      </div>
-    )
-  }
-
   return (
     <Router>
-      <div className="App">
+      <div className="App bg-[#060606] text-[#EDEDE8] min-h-screen">
         <Routes>
-          <Route
-            path="/"
-            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><LandingPage /></>}
-          />
-          <Route
-            path="/login"
-            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><Login onLogin={handleLogin} /></>}
-          />
-          <Route
-            path="/register"
-            element={user ? <Navigate to="/dashboard" /> : <><Navbar user={user} onLogout={handleLogout} /><Register onLogin={handleLogin} /></>}
-          />
-          <Route
-            path="/dashboard"
-            element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
-          />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/landing" element={<LandingPage />} />
+          <Route path="/studio" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/register" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </Router>

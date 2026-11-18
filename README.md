@@ -1,138 +1,60 @@
-# YTShorts - Viral Clip Generator
+# Shorts Studio — Viral Clip Generator (no login)
 
-A powerful MERN stack application that generates viral short clips from YouTube videos using AI-powered analysis.
+Generate viral 9:16 clips from a YouTube URL **or an uploaded video** — with
+accurate word-by-word captions in **English / Hindi (Devanagari) / Hinglish
+(Roman) / Gujarati**, 33 trending caption styles (pop/bounce/karaoke/neon/
+slide/fade/pill), podcast split framing, caption drag + word editing, and
+1080p-first downloads (1080p → 720p → best lower — never 4K/1440p).
+**No register / login required.**
 
-## Features
+## Setup
 
-- 🎯 **Real Video Processing**: Downloads and processes actual YouTube videos
-- ⚡ **AI-Powered Analysis**: Identifies the most engaging moments automatically
-- 📱 **Social Media Ready**: Generates clips in 9:16 format perfect for TikTok, Instagram Reels, and YouTube Shorts
-- 💾 **Instant Downloads**: Download clips as high-quality MP4 files
-- 🎬 **Video Preview**: Preview clips before downloading
-- 📊 **Viral Score**: Each clip gets a viral potential rating
+### 1. System tools
+- **FFmpeg + ffprobe** in PATH. Windows: https://ffmpeg.org/download.html
+- **whisper** for real captions: `pip install openai-whisper` (needs Python).
+  Without it, captions fall back to placeholders. For best Indic accuracy,
+  whisper downloads the `base`/`small` model automatically on first use.
+- `yt-dlp` — ships via `npm install` (`youtube-dl-exec`) or keep `yt-dlp.exe`
+  next to `backend/server.js`.
 
-## System Requirements
-
-- Node.js 16+ 
-- FFmpeg (for video processing)
-- youtube-dl or yt-dlp (handled by npm package)
-
-## Installation
-
-### 1. Install FFmpeg
-
-**Windows:**
-- Download from https://ffmpeg.org/download.html
-- Add to system PATH
-
-**macOS:**
-\`\`\`bash
-brew install ffmpeg
-\`\`\`
-
-**Ubuntu/Debian:**
-\`\`\`bash
-sudo apt update
-sudo apt install ffmpeg
-\`\`\`
-
-### 2. Setup Backend
-
-\`\`\`bash
+### 2. Backend (port 5000)
+```bash
 cd backend
 npm install
-npm run dev
-\`\`\`
+npm start
+```
+No `MONGODB_URI` needed — sessions are in-memory. Health: `http://localhost:5000/api/health`
+- AI clip picking: Powered by **Google AI Studio (Gemini)** (`GEMINI_API_KEY`).
+  Analyzes full timestamped transcripts, chapters, and metadata to extract high-hook,
+  viral short-form moments for YouTube Shorts / Reels / TikTok.
 
-### 3. Setup Frontend
-
-\`\`\`bash
+### 3. Frontend (port 3000)
+```bash
 cd frontend
 npm install
-npm start
-\`\`\`
+npm run dev
+```
+Open `http://localhost:3000` — paste a URL or upload a file, pick language +
+framing, Generate.
 
-### 4. Access Application
+## What changed (v17)
+- Login removed — `/` is the studio. Old `/login`/`/register` redirect home.
+- Downloader v11: exact-height 1080p, else 720p, else best lower. **Never 4K
+  or 1440p** — the format chain cannot pick a resolution above 1080p. Quality is
+  probed from the file, never guessed from size. A stall watchdog kills any
+  attempt that shows no download progress for 5 minutes and the next strategy
+  resumes from kept fragments.
+- Whisper: `base` full-video, `small` per-clip for Hindi/Gujarati; language
+  hint skips the 30s probe; Hinglish = Hindi STT transliterated to Roman.
+- Captions: 33 styles with burned-in animations (libass). Preview and the
+  downloaded file are the same burn. Drag position in fullscreen 9:16 player;
+  edit words via Words button; layout via Framing pills (Smart/Split/Center/Fit).
+- Upload: `POST /api/upload` (multipart `video`) → same clip + caption pipeline.
+- Endpoints: `POST /api/generate-clips` `{url, language, layout}`,
+  `POST /api/add-captions/:clipId`, `PUT /api/clips/:clipId/captions`,
+  `POST /api/re-layout`, `GET /api/download/:clipId_captioned?style=&...`,
+  `POST /api/extend-cut-clip`.
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-
-## How It Works
-
-1. **Video Download**: Uses youtube-dl to download YouTube videos
-2. **Content Analysis**: AI analyzes video for viral moments based on:
-   - Scene changes
-   - Audio peaks
-   - Visual engagement factors
-3. **Clip Extraction**: FFmpeg extracts clips in optimal format (9:16 ratio)
-4. **Thumbnail Generation**: Creates preview thumbnails for each clip
-5. **Download**: Serves clips for instant download
-
-## API Endpoints
-
-- `POST /api/generate-clips` - Generate clips from YouTube URL
-- `GET /api/download/:clipId` - Download specific clip
-- `GET /api/preview/:clipId` - Stream clip for preview
-- `GET /api/health` - Health check
-
-## File Structure
-
-\`\`\`
-ytshorts/
-├── backend/
-│   ├── server.js          # Express server
-│   ├── package.json       # Backend dependencies
-│   └── uploads/           # Generated clips storage
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx        # Main React component
-│   │   ├── App.css        # Styles
-│   │   └── index.jsx      # React entry point
-│   ├── public/
-│   └── package.json       # Frontend dependencies
-└── scripts/
-    └── setup-system.js    # System setup script
-\`\`\`
-
-## Configuration
-
-### Environment Variables (Optional)
-
-Create `.env` file in backend directory:
-
-\`\`\`env
-PORT=5000
-MAX_CLIP_DURATION=30
-MAX_CLIPS_PER_VIDEO=4
-UPLOAD_PATH=./uploads
-\`\`\`
-
-## Troubleshooting
-
-### Common Issues
-
-1. **FFmpeg not found**
-   - Ensure FFmpeg is installed and in system PATH
-   - Restart terminal after installation
-
-2. **YouTube download fails**
-   - Check if URL is valid and public
-   - Some videos may be restricted
-
-3. **Video processing slow**
-   - Processing time depends on video length
-   - Longer videos take more time to analyze
-
-4. **Clips not generating**
-   - Check backend logs for errors
-   - Ensure sufficient disk space
-
-## Performance Tips
-
-- Videos under 10 minutes process faster
-- Higher quality videos may take longer
-- Ensure good internet connection for downloads
-
-## License
-
-MIT License - feel free to use for personal and commercial projects.
+## Palette / design
+Orange `#FF6B35`, off-white `#F5F4F0`, slate `#2C4A5E`, black. Fonts: Outfit /
+Inter (UI), Poppins / Montserrat / Impact (captions).
